@@ -1,0 +1,4 @@
+- Follow conventional commits: feat:, fix:, docs:, ci:, test:
+- One logical change per commit
+- Read docs/BRIEFING.md for the commit plan before committing
+- Never bundle multiple phases in a single commit
