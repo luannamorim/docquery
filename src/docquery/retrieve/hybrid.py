@@ -1,5 +1,11 @@
 from qdrant_client import QdrantClient
-from qdrant_client.models import Fusion, FusionQuery, Prefetch, ScoredPoint, SparseVector
+from qdrant_client.models import (
+    Fusion,
+    FusionQuery,
+    Prefetch,
+    ScoredPoint,
+    SparseVector,
+)
 
 from docquery.config import Settings, get_settings
 from docquery.ingest.sparse import sparse_vector

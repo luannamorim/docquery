@@ -1,5 +1,5 @@
-from sentence_transformers import CrossEncoder
 from qdrant_client.models import ScoredPoint
+from sentence_transformers import CrossEncoder
 
 from docquery.config import Settings, get_settings
 

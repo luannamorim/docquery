@@ -65,7 +65,9 @@ def ingest_chunks(
                 "file_type": chunk.metadata.get("file_type", ""),
             },
         )
-        for chunk, dense, (indices, values) in zip(chunks, dense_vectors, sparse_vectors)
+        for chunk, dense, (indices, values) in zip(
+            chunks, dense_vectors, sparse_vectors
+        )
     ]
 
     batch_size = 100

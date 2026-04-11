@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 
-from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTextSplitter
+from langchain_text_splitters import (
+    MarkdownTextSplitter,
+    RecursiveCharacterTextSplitter,
+)
 
 from docquery.config import Settings, get_settings
 from docquery.ingest.loader import Document
