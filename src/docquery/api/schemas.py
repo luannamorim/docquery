@@ -22,3 +22,12 @@ class QueryResponse(BaseModel):
     sources: list[Source]
     query: str
     model: str
+
+
+class IngestRequest(BaseModel):
+    path: str
+
+
+class IngestResponse(BaseModel):
+    chunks: int
+    path: str
