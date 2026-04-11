@@ -10,6 +10,7 @@ dependencies = [
     "qdrant-client",
     "openai",
     "langchain-text-splitters",
+    "pypdf",
     "ragas",
 ]
 
