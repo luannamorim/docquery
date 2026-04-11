@@ -1,0 +1,15 @@
+{
+  "_note": "Placeholder baseline. Run `make eval` after ingesting docs to generate real results.",
+  "timestamp": "baseline",
+  "model": "gpt-4o-mini",
+  "embedding_model": "all-MiniLM-L6-v2",
+  "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+  "n_samples": 20,
+  "scores": {
+    "faithfulness": null,
+    "answer_relevancy": null,
+    "context_precision": null,
+    "context_recall": null
+  },
+  "rows": []
+}
