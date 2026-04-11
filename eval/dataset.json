@@ -1,0 +1,102 @@
+[
+  {
+    "question": "What is the purpose of hybrid search in a RAG system?",
+    "ground_truth": "Hybrid search combines dense vector (semantic) search with sparse keyword (BM25) search, then fuses the results. This improves retrieval quality by capturing both semantic similarity and exact keyword matches, reducing failures where purely semantic search misses relevant documents containing specific terminology.",
+    "source_doc": "architecture.md"
+  },
+  {
+    "question": "Why is cross-encoder reranking applied after initial retrieval?",
+    "ground_truth": "Cross-encoder reranking takes the top candidates from initial retrieval and scores each query-document pair together using a more accurate but slower model. It improves precision by rescoring retrieved results with full attention between query and document, catching relevance signals that bi-encoder retrieval misses.",
+    "source_doc": "architecture.md"
+  },
+  {
+    "question": "What chunking strategy is used and why?",
+    "ground_truth": "Markdown documents are split using a structure-aware splitter that respects headers and code blocks, preserving semantic boundaries. Other document types fall back to recursive character splitting with fixed chunk size and overlap. This balances chunk coherence with reliable size constraints.",
+    "source_doc": "architecture.md"
+  },
+  {
+    "question": "How are sparse vectors computed for BM25 retrieval?",
+    "ground_truth": "Text is tokenized by extracting alphanumeric tokens in lowercase. Term frequencies are counted and mapped to integer indices using a stable MD5 hash modulo a vocabulary size. Qdrant applies IDF weighting at query time via its Modifier.IDF setting, so only raw term frequencies need to be stored.",
+    "source_doc": "ingest.md"
+  },
+  {
+    "question": "What embedding model is used and why was it chosen?",
+    "ground_truth": "The all-MiniLM-L6-v2 model from sentence-transformers is used. It was chosen because it is free, runs offline without API costs, and produces 384-dimensional embeddings with good quality for semantic search. It can be swapped for other providers via configuration.",
+    "source_doc": "architecture.md"
+  },
+  {
+    "question": "How does the ingestion pipeline handle documents?",
+    "ground_truth": "Documents are loaded from disk based on file type (markdown, PDF, or plain text), split into overlapping chunks, embedded into dense vectors, and stored in Qdrant along with BM25-style sparse vectors and metadata including source path and chunk index.",
+    "source_doc": "ingest.md"
+  },
+  {
+    "question": "What vector database is used and what advantage does it provide?",
+    "ground_truth": "Qdrant is used as the vector database. Its key advantage is built-in support for hybrid search combining dense and sparse vectors with server-side RRF fusion, eliminating the need for a separate BM25 infrastructure or client-side result merging.",
+    "source_doc": "architecture.md"
+  },
+  {
+    "question": "How are citations included in generated answers?",
+    "ground_truth": "Retrieved context passages are numbered and provided to the LLM in its prompt. The LLM is instructed to cite passages inline using bracket notation like [1] or [2]. The response includes a sources list mapping each citation number to the originating document path and chunk.",
+    "source_doc": "generate.md"
+  },
+  {
+    "question": "What RAGAS metrics are used for evaluation?",
+    "ground_truth": "Four metrics are used: faithfulness (measures whether the answer is grounded in the retrieved contexts), answer relevancy (measures how relevant the answer is to the question), context precision (measures whether retrieved contexts are ranked with the most relevant first), and context recall (measures whether all relevant information was retrieved).",
+    "source_doc": "eval.md"
+  },
+  {
+    "question": "Why is a stable hash used instead of Python's built-in hash() for sparse vectors?",
+    "ground_truth": "Python's built-in hash() is randomized per process by default via PYTHONHASHSEED. This means the same token would produce different integer indices on different runs, breaking alignment between ingestion-time and query-time sparse vectors. MD5 provides a deterministic hash that is consistent across processes.",
+    "source_doc": "ingest.md"
+  },
+  {
+    "question": "How does the /query API endpoint work?",
+    "ground_truth": "The POST /query endpoint accepts a JSON body with a query string. It runs the full pipeline: embedding the query, hybrid retrieval from Qdrant, cross-encoder reranking, and LLM generation with citations. It returns a JSON response with the answer text, a list of sources with scores, and the model used.",
+    "source_doc": "api.md"
+  },
+  {
+    "question": "What is Reciprocal Rank Fusion (RRF) and how is it applied here?",
+    "ground_truth": "RRF is a rank fusion algorithm that combines ranked lists from multiple retrieval methods by summing reciprocal rank scores. Qdrant performs RRF server-side by taking prefetch results from both dense and sparse searches and merging them using the RRF formula, producing a single ranked list without requiring client-side implementation.",
+    "source_doc": "architecture.md"
+  },
+  {
+    "question": "What document formats does the loader support?",
+    "ground_truth": "The document loader supports markdown (.md), plain text (.txt), and PDF (.pdf) files. PDFs are processed using pypdf which extracts text from all pages. The loader can process individual files or entire directories, skipping unsupported formats.",
+    "source_doc": "ingest.md"
+  },
+  {
+    "question": "How is the FastAPI application configured?",
+    "ground_truth": "The application entry point is declared in pyproject.toml under [tool.fastapi], pointing to docquery.api.app:app. The FastAPI CLI reads this configuration to locate the app for both development (with auto-reload) and production serving.",
+    "source_doc": "api.md"
+  },
+  {
+    "question": "How is configuration managed in the system?",
+    "ground_truth": "Configuration uses pydantic-settings with a Settings class that reads from a .env file. All settings have sensible defaults and can be overridden via environment variables. This includes Qdrant connection details, model names, chunk sizes, and the OpenAI API key.",
+    "source_doc": "config.md"
+  },
+  {
+    "question": "Why are sync def handlers used in FastAPI instead of async def?",
+    "ground_truth": "The underlying libraries (sentence-transformers, qdrant-client, and the OpenAI SDK) all use synchronous I/O. Using async def with blocking code would block the event loop and degrade performance. FastAPI automatically runs sync def handlers in a thread pool, which is the correct pattern for blocking code.",
+    "source_doc": "api.md"
+  },
+  {
+    "question": "What is the role of chunk_overlap in the chunking strategy?",
+    "ground_truth": "Chunk overlap ensures that content near chunk boundaries appears in adjacent chunks. This prevents relevant context from being split across chunks in a way that makes it unretrievable. The overlap creates redundancy that improves recall at the cost of slightly larger index size.",
+    "source_doc": "ingest.md"
+  },
+  {
+    "question": "How does the reranker model differ from the embedding model?",
+    "ground_truth": "The embedding model encodes query and documents independently into vectors (bi-encoder), enabling fast approximate search over large collections. The reranker is a cross-encoder that jointly processes query and document together, producing a more accurate relevance score at higher computational cost, applied only to the small set of retrieved candidates.",
+    "source_doc": "architecture.md"
+  },
+  {
+    "question": "How is Qdrant's collection created and configured for hybrid search?",
+    "ground_truth": "The collection is created with two named vector types: a dense vector using cosine distance sized to the embedding dimension, and a sparse vector with IDF modifier enabled. The collection is only created if it does not already exist, making the operation idempotent.",
+    "source_doc": "ingest.md"
+  },
+  {
+    "question": "What is stored in the Qdrant payload for each chunk?",
+    "ground_truth": "Each point stored in Qdrant contains a payload with the chunk text, the source file path, the chunk index within the document, and the file type. This metadata is returned alongside retrieval results and used to construct source citations in the generated answer.",
+    "source_doc": "ingest.md"
+  }
+]
