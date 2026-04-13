@@ -1,9 +1,13 @@
+import logging
+
 from openai import OpenAI
 from qdrant_client import QdrantClient
 
 from docquery.config import Settings, get_settings
 from docquery.retrieve.hybrid import retrieve
 from docquery.retrieve.reranker import rerank
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
 You are a technical documentation assistant. Answer the user's question using \
@@ -17,6 +21,7 @@ def generate_answer(
     query: str,
     contexts: list[dict],
     settings: Settings,
+    openai_client: OpenAI,
 ) -> dict:
     """Call the LLM with ranked context passages and return the answer with sources."""
     numbered = "\n\n".join(
@@ -25,8 +30,7 @@ def generate_answer(
     )
     user_message = f"Context:\n{numbered}\n\nQuestion: {query}"
 
-    client = OpenAI(api_key=settings.openai_api_key or None)
-    response = client.chat.completions.create(
+    response = openai_client.chat.completions.create(
         model=settings.llm_model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -61,10 +65,15 @@ def query_pipeline(query: str, settings: Settings | None = None) -> dict:
     Returns {"answer": str, "sources": list[dict], "query": str, "model": str}.
     """
     settings = settings or get_settings()
-    client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    openai_client = OpenAI(api_key=settings.openai_api_key.get_secret_value() or None)
 
-    points = retrieve(query, client, settings)
+    points = retrieve(query, qdrant, settings)
     contexts = rerank(query, points, settings)
-    result = generate_answer(query, contexts, settings)
+    logger.info(
+        "Query: %r — retrieved %d points, reranked to %d",
+        query, len(points), len(contexts),
+    )
+    result = generate_answer(query, contexts, settings, openai_client)
 
     return {**result, "query": query}

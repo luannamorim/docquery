@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -12,13 +13,6 @@ def load_text(path: Path) -> Document:
     return Document(
         content=path.read_text(encoding="utf-8"),
         metadata={"source": str(path), "file_type": path.suffix},
-    )
-
-
-def load_markdown(path: Path) -> Document:
-    return Document(
-        content=path.read_text(encoding="utf-8"),
-        metadata={"source": str(path), "file_type": ".md"},
     )
 
 
@@ -37,9 +31,9 @@ def load_pdf(path: Path) -> Document:
     )
 
 
-LOADERS: dict[str, object] = {
+LOADERS: dict[str, Callable[[Path], Document]] = {
     ".txt": load_text,
-    ".md": load_markdown,
+    ".md": load_text,
     ".pdf": load_pdf,
 }
 
@@ -48,7 +42,7 @@ def load_document(path: Path) -> Document:
     loader = LOADERS.get(path.suffix.lower())
     if loader is None:
         raise ValueError(f"Unsupported file type: {path.suffix}")
-    return loader(path)  # type: ignore[operator]
+    return loader(path)
 
 
 def load_directory(path: Path) -> list[Document]:

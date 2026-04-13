@@ -1,18 +1,14 @@
+from functools import lru_cache
+
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 from docquery.config import Settings, get_settings
 
-_model: SentenceTransformer | None = None
-_model_name: str = ""
 
-
+@lru_cache(maxsize=4)
 def _get_model(model_name: str) -> SentenceTransformer:
-    global _model, _model_name
-    if _model is None or _model_name != model_name:
-        _model = SentenceTransformer(model_name)
-        _model_name = model_name
-    return _model
+    return SentenceTransformer(model_name)
 
 
 def embed_texts(

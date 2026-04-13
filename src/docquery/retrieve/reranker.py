@@ -1,18 +1,14 @@
+from functools import lru_cache
+
 from qdrant_client.models import ScoredPoint
 from sentence_transformers import CrossEncoder
 
 from docquery.config import Settings, get_settings
 
-_reranker: CrossEncoder | None = None
-_reranker_model: str = ""
 
-
+@lru_cache(maxsize=4)
 def _get_reranker(model_name: str) -> CrossEncoder:
-    global _reranker, _reranker_model
-    if _reranker is None or _reranker_model != model_name:
-        _reranker = CrossEncoder(model_name)
-        _reranker_model = model_name
-    return _reranker
+    return CrossEncoder(model_name)
 
 
 def rerank(
@@ -29,7 +25,7 @@ def rerank(
     if not points:
         return []
 
-    texts = [p.payload.get("text", "") for p in points]  # type: ignore[union-attr]
+    texts = [p.payload.get("text", "") if p.payload else "" for p in points]
     reranker = _get_reranker(settings.reranker_model)
     ranked = reranker.rank(
         query,
@@ -40,10 +36,11 @@ def rerank(
 
     return [
         {
-            "text": points[r["corpus_id"]].payload.get("text", ""),  # type: ignore[union-attr]
-            "source": points[r["corpus_id"]].payload.get("source", ""),  # type: ignore[union-attr]
-            "chunk_index": points[r["corpus_id"]].payload.get("chunk_index", 0),  # type: ignore[union-attr]
+            "text": payload.get("text", ""),
+            "source": payload.get("source", ""),
+            "chunk_index": payload.get("chunk_index", 0),
             "score": float(r["score"]),
         }
         for r in ranked
+        for payload in [(points[r["corpus_id"]].payload or {})]
     ]
