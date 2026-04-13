@@ -44,7 +44,7 @@ cp .env.example .env
 docker compose up
 
 # 2. Ingest sample docs
-make ingest ARGS=docs/sample/
+make ingest docs/sample/
 
 # 3. Query
 curl -X POST http://localhost:8000/query \

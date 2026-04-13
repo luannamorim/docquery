@@ -1,4 +1,5 @@
 import argparse
+import logging
 import uuid
 from pathlib import Path
 
@@ -17,6 +18,8 @@ from docquery.ingest.chunker import Chunk, chunk_document
 from docquery.ingest.loader import load_directory, load_document
 from docquery.ingest.sparse import sparse_vector
 from docquery.retrieve.embedder import embed_texts
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_collection(client: QdrantClient, settings: Settings) -> None:
@@ -43,7 +46,11 @@ def ingest_chunks(
     settings: Settings,
 ) -> None:
     """Embed chunks and upsert to Qdrant with dense + sparse vectors."""
+    before = len(chunks)
     chunks = [c for c in chunks if c.text.strip()]
+    dropped = before - len(chunks)
+    if dropped:
+        logger.warning("Dropped %d empty chunk(s) before upsert", dropped)
     if not chunks:
         return
 
@@ -85,12 +92,17 @@ def ingest_path(path: Path, settings: Settings | None = None) -> int:
     ensure_collection(client, settings)
 
     docs = load_directory(path) if path.is_dir() else [load_document(path)]
+    logger.info("Loaded %d document(s) from %s", len(docs), path)
 
     all_chunks: list[Chunk] = []
     for doc in docs:
         all_chunks.extend(chunk_document(doc, settings=settings))
 
     ingest_chunks(all_chunks, client, settings)
+    logger.info(
+        "Ingested %d chunks into collection '%s'",
+        len(all_chunks), settings.qdrant_collection,
+    )
     return len(all_chunks)
 
 
