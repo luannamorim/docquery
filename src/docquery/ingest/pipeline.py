@@ -101,7 +101,8 @@ def ingest_path(path: Path, settings: Settings | None = None) -> int:
     ingest_chunks(all_chunks, client, settings)
     logger.info(
         "Ingested %d chunks into collection '%s'",
-        len(all_chunks), settings.qdrant_collection,
+        len(all_chunks),
+        settings.qdrant_collection,
     )
     return len(all_chunks)
 

@@ -72,7 +72,9 @@ def query_pipeline(query: str, settings: Settings | None = None) -> dict:
     contexts = rerank(query, points, settings)
     logger.info(
         "Query: %r — retrieved %d points, reranked to %d",
-        query, len(points), len(contexts),
+        query,
+        len(points),
+        len(contexts),
     )
     result = generate_answer(query, contexts, settings, openai_client)
 
