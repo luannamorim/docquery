@@ -1,20 +1,22 @@
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
-    status: str
+    status: Literal["ok"]
 
 
 class QueryRequest(BaseModel):
-    query: str
+    query: str = Field(min_length=1, examples=["How does hybrid search work?"])
 
 
 class Source(BaseModel):
-    index: int
-    source: str
-    chunk_index: int
-    score: float
-    text: str
+    index: int = Field(description="1-based citation index, matches [N] in answer")
+    source: str = Field(description="Source document path")
+    chunk_index: int = Field(description="Chunk position within the source document")
+    score: float = Field(description="Cross-encoder relevance score")
+    text: str = Field(description="Retrieved passage text")
 
 
 class QueryResponse(BaseModel):
@@ -25,7 +27,7 @@ class QueryResponse(BaseModel):
 
 
 class IngestRequest(BaseModel):
-    path: str
+    path: str = Field(min_length=1, examples=["docs/sample"])
 
 
 class IngestResponse(BaseModel):

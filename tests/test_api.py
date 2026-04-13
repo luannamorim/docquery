@@ -59,7 +59,7 @@ def test_ingest_success(tmp_path) -> None:
     (tmp_path / "test.md").write_text("# Hello\n\nWorld.")
     with patch("docquery.api.routes.ingest_path", return_value=3) as mock:
         response = client.post("/ingest", json={"path": str(tmp_path)})
-    assert response.status_code == 200
+    assert response.status_code == 201
     data = response.json()
     assert data["chunks"] == 3
     assert data["path"] == str(tmp_path)

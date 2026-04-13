@@ -14,23 +14,23 @@ from docquery.config import Settings, get_settings
 from docquery.generate.rag import query_pipeline
 from docquery.ingest.pipeline import ingest_path
 
-router = APIRouter(tags=["system"])
+router = APIRouter()
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-@router.get("/health")
+@router.get("/health", tags=["system"])
 def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-@router.post("/query")
+@router.post("/query", tags=["query"])
 def query(request: QueryRequest, settings: SettingsDep) -> QueryResponse:
     result = query_pipeline(request.query, settings=settings)
     return QueryResponse(**result)
 
 
-@router.post("/ingest")
+@router.post("/ingest", tags=["ingest"], status_code=201)
 def ingest(request: IngestRequest, settings: SettingsDep) -> IngestResponse:
     path = Path(request.path)
     if not path.exists():
