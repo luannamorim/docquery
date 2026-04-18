@@ -48,5 +48,5 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, chunker, pi
 
 - Conventional commits: `feat:`, `fix:`, `docs:`, `ci:`, `test:`
 - One logical change per commit
-- Read `docs/BRIEFING.md` for the incremental 6-phase commit plan before committing
+- Read `docs/SPEC.md` for the incremental 6-phase commit plan before committing
 - Use `/commit` to commit following the plan
