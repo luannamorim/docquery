@@ -34,7 +34,7 @@ def rerank(
         return_documents=False,
     )
 
-    return [
+    contexts = [
         {
             "text": payload.get("text", ""),
             "source": payload.get("source", ""),
@@ -44,3 +44,4 @@ def rerank(
         for r in ranked
         for payload in [(points[r["corpus_id"]].payload or {})]
     ]
+    return [ctx for ctx in contexts if ctx["score"] >= settings.reranker_score_threshold]
