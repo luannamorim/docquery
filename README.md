@@ -125,7 +125,7 @@ curl -X POST http://localhost:8000/query \
 curl -X POST http://localhost:8000/ingest \
   -H "Content-Type: application/json" \
   -d '{"path": "docs/sample"}'
-# {"chunks": 48, "path": "docs/sample"}
+# {"chunks": 48, "deleted": 0, "path": "docs/sample"}
 ```
 
 Interactive docs: `http://localhost:8000/docs`
@@ -173,7 +173,9 @@ Qdrant exposes a full REST API and dashboard for managing the vector index — n
 | Inspect collection | `GET http://localhost:6333/collections/documents` |
 | Reset index | `DELETE http://localhost:6333/collections/documents` |
 
-Re-ingesting after a reset is safe: `POST /ingest` is idempotent — chunk IDs are derived from content via SHA256, so re-ingesting the same documents updates existing points rather than duplicating them.
+Directory ingest is fully idempotent and self-healing:
+- **No duplicates** — chunk IDs are SHA256(content + source), so re-ingesting the same file updates in place.
+- **Orphan cleanup** — if a file is deleted from the directory, its chunks are automatically removed from Qdrant on the next ingest. The `deleted` field in the response reports how many sources were cleaned up.
 
 ## Production Considerations
 

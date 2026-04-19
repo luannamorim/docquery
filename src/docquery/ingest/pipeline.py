@@ -6,6 +6,10 @@ from pathlib import Path
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
+    FieldCondition,
+    Filter,
+    FilterSelector,
+    MatchValue,
     Modifier,
     PointStruct,
     SparseVector,
@@ -15,7 +19,7 @@ from qdrant_client.models import (
 
 from docquery.config import Settings, get_settings
 from docquery.ingest.chunker import Chunk, chunk_document
-from docquery.ingest.loader import load_directory, load_document
+from docquery.ingest.loader import LOADERS, load_directory, load_document
 from docquery.ingest.sparse import sparse_vector
 from docquery.retrieve.embedder import embed_texts
 
@@ -85,13 +89,61 @@ def ingest_chunks(
         )
 
 
-def ingest_path(path: Path, settings: Settings | None = None) -> int:
-    """Ingest a file or directory into Qdrant. Returns chunk count stored."""
+def delete_orphan_chunks(
+    client: QdrantClient,
+    settings: Settings,
+    directory: Path,
+    current_sources: set[str],
+) -> int:
+    """Delete chunks whose source file no longer exists under directory. Returns deleted source count."""
+    prefix = str(directory)
+    indexed_sources: set[str] = set()
+    offset = None
+
+    while True:
+        results, offset = client.scroll(
+            collection_name=settings.qdrant_collection,
+            limit=250,
+            offset=offset,
+            with_payload=["source"],
+            with_vectors=False,
+        )
+        for point in results:
+            source = point.payload.get("source", "") if point.payload else ""
+            if source.startswith(prefix):
+                indexed_sources.add(source)
+        if offset is None:
+            break
+
+    orphans = indexed_sources - current_sources
+    for source in orphans:
+        client.delete(
+            collection_name=settings.qdrant_collection,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[FieldCondition(key="source", match=MatchValue(value=source))]
+                )
+            ),
+        )
+
+    if orphans:
+        logger.info("Deleted chunks for %d orphan source(s): %s", len(orphans), orphans)
+    return len(orphans)
+
+
+def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
+    """Ingest a file or directory into Qdrant. Returns chunk and deleted counts."""
     settings = settings or get_settings()
     client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
     ensure_collection(client, settings)
 
-    docs = load_directory(path) if path.is_dir() else [load_document(path)]
+    if path.is_dir():
+        current_sources = {str(f) for f in path.iterdir() if f.suffix.lower() in LOADERS}
+        docs = load_directory(path)
+    else:
+        current_sources = set()
+        docs = [load_document(path)]
+
     logger.info("Loaded %d document(s) from %s", len(docs), path)
 
     all_chunks: list[Chunk] = []
@@ -99,12 +151,10 @@ def ingest_path(path: Path, settings: Settings | None = None) -> int:
         all_chunks.extend(chunk_document(doc, settings=settings))
 
     ingest_chunks(all_chunks, client, settings)
-    logger.info(
-        "Ingested %d chunks into collection '%s'",
-        len(all_chunks),
-        settings.qdrant_collection,
-    )
-    return len(all_chunks)
+    logger.info("Ingested %d chunks into collection '%s'", len(all_chunks), settings.qdrant_collection)
+
+    deleted = delete_orphan_chunks(client, settings, path, current_sources) if path.is_dir() else 0
+    return {"chunks": len(all_chunks), "deleted": deleted}
 
 
 def main() -> None:
@@ -116,8 +166,8 @@ def main() -> None:
         parser.error(f"Path does not exist: {args.path}")
 
     settings = get_settings()
-    count = ingest_path(args.path, settings=settings)
-    print(f"Ingested {count} chunks from {args.path}")
+    result = ingest_path(args.path, settings=settings)
+    print(f"Ingested {result['chunks']} chunks from {args.path} (deleted {result['deleted']} orphan source(s))")
 
 
 if __name__ == "__main__":

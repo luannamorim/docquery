@@ -32,4 +32,5 @@ class IngestRequest(BaseModel):
 
 class IngestResponse(BaseModel):
     chunks: int
+    deleted: int
     path: str

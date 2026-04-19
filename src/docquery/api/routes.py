@@ -35,5 +35,5 @@ def ingest(request: IngestRequest, settings: SettingsDep) -> IngestResponse:
     path = Path(request.path)
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Path not found: {request.path}")
-    chunks = ingest_path(path, settings=settings)
-    return IngestResponse(chunks=chunks, path=str(path))
+    result = ingest_path(path, settings=settings)
+    return IngestResponse(**result, path=str(path))
