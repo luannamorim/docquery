@@ -76,6 +76,14 @@ def query_pipeline(query: str, settings: Settings | None = None) -> dict:
         len(points),
         len(contexts),
     )
+    if not contexts:
+        return {
+            "answer": "No documents have been indexed yet. Please ingest documents first.",
+            "sources": [],
+            "query": query,
+            "model": settings.llm_model,
+        }
+
     result = generate_answer(query, contexts, settings, openai_client)
 
     return {**result, "query": query}

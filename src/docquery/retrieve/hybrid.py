@@ -24,6 +24,10 @@ def retrieve(
     """
     settings = settings or get_settings()
 
+    existing = {c.name for c in client.get_collections().collections}
+    if settings.qdrant_collection not in existing:
+        return []
+
     dense_vec = embed_texts([query], settings=settings)[0].tolist()
     sparse_indices, sparse_values = sparse_vector(query)
 
