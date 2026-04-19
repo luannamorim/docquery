@@ -1,6 +1,6 @@
 import argparse
+import hashlib
 import logging
-import uuid
 from pathlib import Path
 
 from qdrant_client import QdrantClient
@@ -60,7 +60,7 @@ def ingest_chunks(
 
     points = [
         PointStruct(
-            id=str(uuid.uuid4()),
+            id=int(hashlib.sha256((chunk.text + chunk.metadata.get("source", "")).encode()).hexdigest()[:16], 16),
             vector={
                 "dense": dense,
                 "sparse": SparseVector(indices=indices, values=values),

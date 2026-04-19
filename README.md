@@ -163,11 +163,22 @@ docquery/
 └── pyproject.toml
 ```
 
+## Collection Management
+
+Qdrant exposes a full REST API and dashboard for managing the vector index — no extra endpoints needed in the application.
+
+| Action | Command |
+|--------|---------|
+| Open dashboard | `http://localhost:6333/dashboard` |
+| Inspect collection | `GET http://localhost:6333/collections/documents` |
+| Reset index | `DELETE http://localhost:6333/collections/documents` |
+
+Re-ingesting after a reset is safe: `POST /ingest` is idempotent — chunk IDs are derived from content via SHA256, so re-ingesting the same documents updates existing points rather than duplicating them.
+
 ## Production Considerations
 
 Not implemented (out of scope for this project):
 
 - **Auth** — add API key middleware or OAuth2 before exposing publicly
-- **Deduplication** — re-ingesting the same file adds duplicate chunks; use deterministic point IDs to fix
 - **Streaming** — responses could be streamed; OpenAI SDK supports it
 - **Chat history** — this is a single-turn Q&A system, not a chatbot
