@@ -27,6 +27,8 @@ def sparse_vector(text: str) -> tuple[list[int], list[float]]:
     if not tokens:
         return [], []
     counts = Counter(tokens)
-    indices = [_stable_hash(token) for token in counts]
-    values = [float(count) for count in counts.values()]
-    return indices, values
+    merged: dict[int, float] = {}
+    for token, count in counts.items():
+        idx = _stable_hash(token)
+        merged[idx] = merged.get(idx, 0.0) + float(count)
+    return list(merged.keys()), list(merged.values())
