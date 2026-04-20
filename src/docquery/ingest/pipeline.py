@@ -136,6 +136,23 @@ def delete_orphan_chunks(
     return len(orphans)
 
 
+def delete_chunks_for_sources(
+    client: QdrantClient,
+    settings: Settings,
+    sources: set[str],
+) -> None:
+    """Delete all existing chunks for the given sources before re-ingesting."""
+    for source in sources:
+        client.delete(
+            collection_name=settings.qdrant_collection,
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[FieldCondition(key="source", match=MatchValue(value=source))]
+                )
+            ),
+        )
+
+
 def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     """Ingest a file or directory into Qdrant. Returns chunk and deleted counts."""
     settings = settings or get_settings()
@@ -157,6 +174,8 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     for doc in docs:
         all_chunks.extend(chunk_document(doc, settings=settings))
 
+    sources_to_ingest = {doc.metadata.get("source", "") for doc in docs} - {""}
+    delete_chunks_for_sources(client, settings, sources_to_ingest)
     ingest_chunks(all_chunks, client, settings)
     logger.info(
         "Ingested %d chunks into collection '%s'",
