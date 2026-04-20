@@ -64,7 +64,12 @@ def ingest_chunks(
 
     points = [
         PointStruct(
-            id=int(hashlib.sha256((chunk.text + chunk.metadata.get("source", "")).encode()).hexdigest()[:16], 16),
+            id=int(
+                hashlib.sha256(
+                    (chunk.text + chunk.metadata.get("source", "")).encode()
+                ).hexdigest()[:16],
+                16,
+            ),
             vector={
                 "dense": dense,
                 "sparse": SparseVector(indices=indices, values=values),
@@ -95,7 +100,7 @@ def delete_orphan_chunks(
     directory: Path,
     current_sources: set[str],
 ) -> int:
-    """Delete chunks whose source file no longer exists under directory. Returns deleted source count."""
+    """Delete chunks for sources no longer in directory. Returns deleted count."""
     prefix = str(directory)
     indexed_sources: set[str] = set()
     offset = None
@@ -138,7 +143,9 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     ensure_collection(client, settings)
 
     if path.is_dir():
-        current_sources = {str(f) for f in path.iterdir() if f.suffix.lower() in LOADERS}
+        current_sources = {
+            str(f) for f in path.iterdir() if f.suffix.lower() in LOADERS
+        }
         docs = load_directory(path)
     else:
         current_sources = set()
@@ -151,9 +158,17 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
         all_chunks.extend(chunk_document(doc, settings=settings))
 
     ingest_chunks(all_chunks, client, settings)
-    logger.info("Ingested %d chunks into collection '%s'", len(all_chunks), settings.qdrant_collection)
+    logger.info(
+        "Ingested %d chunks into collection '%s'",
+        len(all_chunks),
+        settings.qdrant_collection,
+    )
 
-    deleted = delete_orphan_chunks(client, settings, path, current_sources) if path.is_dir() else 0
+    deleted = (
+        delete_orphan_chunks(client, settings, path, current_sources)
+        if path.is_dir()
+        else 0
+    )
     return {"chunks": len(all_chunks), "deleted": deleted}
 
 
@@ -167,7 +182,10 @@ def main() -> None:
 
     settings = get_settings()
     result = ingest_path(args.path, settings=settings)
-    print(f"Ingested {result['chunks']} chunks from {args.path} (deleted {result['deleted']} orphan source(s))")
+    print(
+        f"Ingested {result['chunks']} chunks from {args.path}"
+        f" (deleted {result['deleted']} orphan source(s))"
+    )
 
 
 if __name__ == "__main__":

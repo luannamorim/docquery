@@ -44,4 +44,5 @@ def rerank(
         for r in ranked
         for payload in [(points[r["corpus_id"]].payload or {})]
     ]
-    return [ctx for ctx in contexts if ctx["score"] >= settings.reranker_score_threshold]
+    threshold = settings.reranker_score_threshold
+    return [ctx for ctx in contexts if ctx["score"] >= threshold]
