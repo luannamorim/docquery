@@ -121,11 +121,19 @@ curl -X POST http://localhost:8000/query \
 ```
 
 ### `POST /ingest`
+Returns `202 Accepted` immediately. Ingestion runs in the background.
 ```bash
 curl -X POST http://localhost:8000/ingest \
   -H "Content-Type: application/json" \
   -d '{"path": "docs/sample"}'
-# {"chunks": 48, "deleted": 0, "path": "docs/sample"}
+# {"task_id": "e3b0c442-...", "status": "pending"}
+```
+
+### `GET /ingest/{task_id}`
+Poll for ingestion status (`pending` → `running` → `done` / `error`).
+```bash
+curl http://localhost:8000/ingest/e3b0c442-...
+# {"task_id": "e3b0c442-...", "status": "done", "chunks": 48, "deleted": 0, "error": null}
 ```
 
 Interactive docs: `http://localhost:8000/docs`
