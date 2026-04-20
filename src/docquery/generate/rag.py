@@ -77,10 +77,14 @@ def query_pipeline(query: str, settings: Settings | None = None) -> dict:
         len(contexts),
     )
     if not contexts:
-        return {
-            "answer": (
+        if not points:
+            answer = (
                 "No documents have been indexed yet. Please ingest documents first."
-            ),
+            )
+        else:
+            answer = "I couldn't find relevant information to answer that question."
+        return {
+            "answer": answer,
             "sources": [],
             "query": query,
             "model": settings.llm_model,
