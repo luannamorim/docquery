@@ -60,11 +60,32 @@ def test_ingest_success(tmp_path) -> None:
     mock_result = {"chunks": 3, "deleted": 0}
     with patch("docquery.api.routes.ingest_path", return_value=mock_result) as mock:
         response = client.post("/ingest", json={"path": str(tmp_path)})
-    assert response.status_code == 201
+    assert response.status_code == 202
     data = response.json()
-    assert data["chunks"] == 3
-    assert data["path"] == str(tmp_path)
+    assert "task_id" in data
+    assert data["status"] == "pending"
     mock.assert_called_once()
+
+
+def test_ingest_status_done(tmp_path) -> None:
+    (tmp_path / "test.md").write_text("# Hello\n\nWorld.")
+    mock_result = {"chunks": 3, "deleted": 0}
+    with patch("docquery.api.routes.ingest_path", return_value=mock_result):
+        post_response = client.post("/ingest", json={"path": str(tmp_path)})
+    task_id = post_response.json()["task_id"]
+    status_response = client.get(f"/ingest/{task_id}")
+    assert status_response.status_code == 200
+    data = status_response.json()
+    assert data["task_id"] == task_id
+    assert data["status"] == "done"
+    assert data["chunks"] == 3
+    assert data["deleted"] == 0
+    assert data["error"] is None
+
+
+def test_ingest_status_not_found() -> None:
+    response = client.get("/ingest/nonexistent-task-id")
+    assert response.status_code == 404
 
 
 def test_ingest_empty_body() -> None:

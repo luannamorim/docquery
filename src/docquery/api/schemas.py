@@ -34,3 +34,16 @@ class IngestResponse(BaseModel):
     chunks: int
     deleted: int
     path: str
+
+
+class IngestJobResponse(BaseModel):
+    task_id: str
+    status: str
+
+
+class IngestStatusResponse(BaseModel):
+    task_id: str
+    status: str
+    chunks: int | None = None
+    deleted: int | None = None
+    error: str | None = None
