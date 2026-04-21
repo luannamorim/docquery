@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # Reranker
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    reranker_top_k: int = 5
+    reranker_top_k: int = 8
     reranker_score_threshold: float = -5.0
 
     # Retrieval

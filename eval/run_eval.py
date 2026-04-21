@@ -21,7 +21,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from ragas import EvaluationDataset, SingleTurnSample, evaluate
 from ragas.embeddings import LangchainEmbeddingsWrapper
 from ragas.llms import LangchainLLMWrapper
-from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
+from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness  # noqa: E402
 
 from docquery.config import get_settings
 from docquery.generate.rag import query_pipeline
