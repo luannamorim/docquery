@@ -44,7 +44,7 @@ cp .env.example .env
 docker compose up
 
 # 2. Ingest sample docs
-make ingest docs/sample/
+docker compose exec app make ingest docs/sample/
 
 # 3. Query
 curl -X POST http://localhost:8000/query \
@@ -52,8 +52,10 @@ curl -X POST http://localhost:8000/query \
   -d '{"query": "How does hybrid search work?"}'
 
 # 4. Evaluate
-make eval
+docker compose exec app make eval
 ```
+
+> `make` targets run inside the container. Use `docker compose exec app make <target>` when the stack is running via Docker.
 
 **Local dev (no Docker):**
 
@@ -83,7 +85,7 @@ make serve
 
 ## Evaluation Results
 
-Run `make eval` after ingesting docs to populate results. Results are saved to `eval/results/` as timestamped JSON.
+Run `docker compose exec app make eval` after ingesting docs to populate results. Results are saved to `eval/results/` as timestamped JSON.
 
 | Metric | Description | Baseline |
 |---|---|---|
@@ -92,7 +94,7 @@ Run `make eval` after ingesting docs to populate results. Results are saved to `
 | Context Precision | Retrieved contexts ranked by relevance | — |
 | Context Recall | All relevant information retrieved | — |
 
-*Run `make eval` to generate baseline scores.*
+*Run `docker compose exec app make eval` to generate baseline scores.*
 
 ## API Reference
 
