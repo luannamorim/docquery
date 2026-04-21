@@ -53,7 +53,12 @@ def ingest(
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Path not found: {request.path}")
     task_id = str(uuid.uuid4())
-    _tasks[task_id] = {"status": "pending", "chunks": None, "deleted": None, "error": None}
+    _tasks[task_id] = {
+        "status": "pending",
+        "chunks": None,
+        "deleted": None,
+        "error": None,
+    }
     background_tasks.add_task(_run_ingest, task_id, path, settings)
     return IngestJobResponse(task_id=task_id, status="pending")
 

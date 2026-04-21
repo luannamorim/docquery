@@ -28,6 +28,7 @@ def generate_answer(
     openai_client: OpenAI,
 ) -> dict:
     """Call the LLM with ranked context passages and return the answer with sources."""
+
     def _fmt(i: int, ctx: dict) -> str:
         section = f"[Section: {ctx['section']}]\n" if ctx.get("section") else ""
         return f"[{i + 1}] (source: {ctx['source']})\n{section}{ctx['text']}"

@@ -76,11 +76,7 @@ def test_markdown_section_extracted_from_header() -> None:
 
 
 def test_markdown_section_inherited_by_following_chunks() -> None:
-    content = (
-        "## Instalação\n\n"
-        + "passo " * 200
-        + "\n\ncontinuação sem header " * 50
-    )
+    content = "## Instalação\n\n" + "passo " * 200 + "\n\ncontinuação sem header " * 50
     doc = Document(content=content, metadata={"source": "f.md", "file_type": ".md"})
     chunks = chunk_document(doc, settings=_settings(chunk_size=100, chunk_overlap=10))
     assert len(chunks) > 1
@@ -102,8 +98,7 @@ def test_markdown_breadcrumb_for_nested_headers() -> None:
         "intro\n\n"
         "## Passo 3\n\n"
         "passo três\n\n"
-        "### 3.1 Subitem\n\n"
-        + "detalhe " * 30
+        "### 3.1 Subitem\n\n" + "detalhe " * 30
     )
     doc = Document(content=content, metadata={"source": "f.md", "file_type": ".md"})
     chunks = chunk_document(doc, settings=_settings())

@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from docquery.config import Settings
 from docquery.retrieve.expand import expand_contexts
