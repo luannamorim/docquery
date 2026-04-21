@@ -24,10 +24,11 @@ def generate_answer(
     openai_client: OpenAI,
 ) -> dict:
     """Call the LLM with ranked context passages and return the answer with sources."""
-    numbered = "\n\n".join(
-        f"[{i + 1}] (source: {ctx['source']})\n{ctx['text']}"
-        for i, ctx in enumerate(contexts)
-    )
+    def _fmt(i: int, ctx: dict) -> str:
+        section = f"[Section: {ctx['section']}]\n" if ctx.get("section") else ""
+        return f"[{i + 1}] (source: {ctx['source']})\n{section}{ctx['text']}"
+
+    numbered = "\n\n".join(_fmt(i, ctx) for i, ctx in enumerate(contexts))
     user_message = f"Context:\n{numbered}\n\nQuestion: {query}"
 
     response = openai_client.chat.completions.create(

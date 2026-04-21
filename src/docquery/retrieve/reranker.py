@@ -40,6 +40,7 @@ def rerank(
             "source": payload.get("source", ""),
             "chunk_index": payload.get("chunk_index", 0),
             "score": float(r["score"]),
+            "section": payload.get("section", ""),
         }
         for r in ranked
         for payload in [(points[r["corpus_id"]].payload or {})]

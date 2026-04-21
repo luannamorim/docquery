@@ -66,3 +66,31 @@ def test_chunk_empty_content() -> None:
     doc = Document(content="", metadata={"source": "f.txt", "file_type": ".txt"})
     chunks = chunk_document(doc, settings=_settings())
     assert chunks == []
+
+
+def test_markdown_section_extracted_from_header() -> None:
+    content = "## Passo 1: Configurar ambiente\n\n" + "detalhe " * 20
+    doc = Document(content=content, metadata={"source": "f.md", "file_type": ".md"})
+    chunks = chunk_document(doc, settings=_settings())
+    assert chunks[0].metadata["section"] == "Passo 1: Configurar ambiente"
+
+
+def test_markdown_section_inherited_by_following_chunks() -> None:
+    content = (
+        "## Instalação\n\n"
+        + "passo " * 200
+        + "\n\ncontinuação sem header " * 50
+    )
+    doc = Document(content=content, metadata={"source": "f.md", "file_type": ".md"})
+    chunks = chunk_document(doc, settings=_settings(chunk_size=100, chunk_overlap=10))
+    assert len(chunks) > 1
+    assert all(c.metadata["section"] == "Instalação" for c in chunks)
+
+
+def test_non_markdown_chunks_have_no_section() -> None:
+    doc = Document(
+        content="plain text " * 100,
+        metadata={"source": "f.txt", "file_type": ".txt"},
+    )
+    chunks = chunk_document(doc, settings=_settings(chunk_size=100, chunk_overlap=10))
+    assert all("section" not in c.metadata for c in chunks)

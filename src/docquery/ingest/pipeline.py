@@ -79,6 +79,7 @@ def ingest_chunks(
                 "source": chunk.metadata.get("source", ""),
                 "chunk_index": int(chunk.metadata.get("chunk_index", 0)),
                 "file_type": chunk.metadata.get("file_type", ""),
+                "section": chunk.metadata.get("section", ""),
             },
         )
         for chunk, dense, (indices, values) in zip(
