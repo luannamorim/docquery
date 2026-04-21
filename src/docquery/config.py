@@ -36,6 +36,9 @@ class Settings(BaseSettings):
         r"^Step \d+[:.]",
     ]
 
+    # Context expansion — fetch N neighbor chunks on each side of each reranked result
+    context_expansion_window: int = 1
+
     # LLM
     openai_api_key: SecretStr = SecretStr("")
     llm_model: str = "gpt-4o-mini"

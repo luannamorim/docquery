@@ -4,6 +4,7 @@ from openai import OpenAI
 from qdrant_client import QdrantClient
 
 from docquery.config import Settings, get_settings
+from docquery.retrieve.expand import expand_contexts
 from docquery.retrieve.hybrid import retrieve
 from docquery.retrieve.reranker import rerank
 
@@ -72,6 +73,7 @@ def query_pipeline(query: str, settings: Settings | None = None) -> dict:
 
     points = retrieve(query, qdrant, settings)
     contexts = rerank(query, points, settings)
+    contexts = expand_contexts(contexts, qdrant, settings)
     logger.info(
         "Query: %r — retrieved %d points, reranked to %d",
         query,
