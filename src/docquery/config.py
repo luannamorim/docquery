@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     heading_patterns: list[str] = [
         r"^Passo \d+[:.]",
         r"^Step \d+[:.]",
-        r"^\d+\.\s+[A-ZÁÂÃÉÊÍÓÔÕÚÇ]",
     ]
 
     # LLM

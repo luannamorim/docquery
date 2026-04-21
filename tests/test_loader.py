@@ -78,3 +78,14 @@ def test_heading_promotion_preserves_existing_markdown(tmp_path: Path) -> None:
     doc = load_document(f)
     assert doc.metadata["file_type"] == ".md"
     assert doc.content.startswith("# Guia")
+
+
+def test_year_sentences_not_promoted_as_heading(tmp_path: Path) -> None:
+    f = tmp_path / "history.txt"
+    f.write_text(
+        "1970. Assim como a geração que os antecedeu, as pessoas da Geração X\n"
+        "cresceram em um mundo muito diferente.\n"
+    )
+    doc = load_document(f)
+    assert doc.metadata["file_type"] == ".txt"
+    assert "## " not in doc.content
