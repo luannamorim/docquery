@@ -55,8 +55,6 @@ curl -X POST http://localhost:8000/query \
 docker compose exec app make eval
 ```
 
-> `make` targets run inside the container. Use `docker compose exec app make <target>` when the stack is running via Docker.
-
 **Local dev (no Docker):**
 
 ```bash

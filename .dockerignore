@@ -5,6 +5,5 @@ __pycache__/
 .git/
 .ruff_cache/
 docs/
-eval/
 tests/
 *.egg-info/
