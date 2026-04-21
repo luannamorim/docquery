@@ -47,3 +47,34 @@ def test_load_directory_empty(tmp_path: Path) -> None:
 def test_document_default_metadata() -> None:
     doc = Document(content="test")
     assert doc.metadata == {}
+
+
+def test_text_with_heading_pattern_promotes_to_markdown(tmp_path: Path) -> None:
+    f = tmp_path / "procedure.txt"
+    f.write_text(
+        "Instruções de deploy.\n\n"
+        "Passo 1: Preparar ambiente\n\n"
+        "Instale docker.\n\n"
+        "Passo 2: Subir containers\n\n"
+        "Rode docker-compose up -d.\n"
+    )
+    doc = load_document(f)
+    assert doc.metadata["file_type"] == ".md"
+    assert "## Passo 1:" in doc.content
+    assert "## Passo 2:" in doc.content
+
+
+def test_text_without_heading_pattern_stays_plain(tmp_path: Path) -> None:
+    f = tmp_path / "prose.txt"
+    f.write_text("Just a paragraph without any procedural structure.\n")
+    doc = load_document(f)
+    assert doc.metadata["file_type"] == ".txt"
+    assert "## " not in doc.content
+
+
+def test_heading_promotion_preserves_existing_markdown(tmp_path: Path) -> None:
+    f = tmp_path / "guide.md"
+    f.write_text("# Guia\n\nTexto normal sem passos numerados.\n")
+    doc = load_document(f)
+    assert doc.metadata["file_type"] == ".md"
+    assert doc.content.startswith("# Guia")

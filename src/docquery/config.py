@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     chunk_size: int = 512
     chunk_overlap: int = 50
 
+    # Heading promotion for non-markdown procedural docs.
+    # Patterns that match at line start are rewritten as "## ..." so the
+    # markdown pipeline can extract them as sections.
+    heading_patterns: list[str] = [
+        r"^Passo \d+[:.]",
+        r"^Step \d+[:.]",
+        r"^\d+\.\s+[A-ZÁÂÃÉÊÍÓÔÕÚÇ]",
+    ]
+
     # LLM
     openai_api_key: SecretStr = SecretStr("")
     llm_model: str = "gpt-4o-mini"
