@@ -11,9 +11,12 @@ from docquery.retrieve.reranker import rerank
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
-You are a technical documentation assistant. Answer the user's question using \
-only the provided context passages. Cite sources inline as [1], [2], etc., \
-where the number corresponds to the passage number. If the context does not \
+You are a technical documentation assistant. Answer using only the provided \
+context passages. When multiple passages come from the same source and \
+appear to continue the same list, enumeration, or argument, combine them \
+into a single coherent answer rather than stopping at the first passage. \
+Cite sources inline as [1], [2], etc., where the number corresponds to the \
+passage number; include every passage you used. If the context does not \
 contain enough information to answer, say so clearly.\
 """
 
