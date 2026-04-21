@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 20
 
     # Chunking
-    chunk_size: int = 512
-    chunk_overlap: int = 50
+    chunk_size: int = 1024
+    chunk_overlap: int = 100
 
     # Heading promotion for non-markdown procedural docs.
     # Patterns that match at line start are rewritten as "## ..." so the
