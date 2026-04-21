@@ -96,6 +96,21 @@ def test_non_markdown_chunks_have_no_section() -> None:
     assert all("section" not in c.metadata for c in chunks)
 
 
+def test_markdown_breadcrumb_for_nested_headers() -> None:
+    content = (
+        "# Deploy\n\n"
+        "intro\n\n"
+        "## Passo 3\n\n"
+        "passo três\n\n"
+        "### 3.1 Subitem\n\n"
+        + "detalhe " * 30
+    )
+    doc = Document(content=content, metadata={"source": "f.md", "file_type": ".md"})
+    chunks = chunk_document(doc, settings=_settings())
+    sections = {c.metadata["section"] for c in chunks}
+    assert "Deploy > Passo 3 > 3.1 Subitem" in sections
+
+
 def test_chunks_pick_up_new_section_when_header_appears() -> None:
     content = (
         "## Seção A\n\n"
