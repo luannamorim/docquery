@@ -94,3 +94,20 @@ def test_non_markdown_chunks_have_no_section() -> None:
     )
     chunks = chunk_document(doc, settings=_settings(chunk_size=100, chunk_overlap=10))
     assert all("section" not in c.metadata for c in chunks)
+
+
+def test_chunks_pick_up_new_section_when_header_appears() -> None:
+    content = (
+        "## Seção A\n\n"
+        + "conteúdo A " * 50
+        + "\n\n## Seção B\n\n"
+        + "conteúdo B " * 50
+    )
+    doc = Document(content=content, metadata={"source": "f.md", "file_type": ".md"})
+    chunks = chunk_document(doc, settings=_settings(chunk_size=200, chunk_overlap=20))
+    sections = [c.metadata["section"] for c in chunks]
+    assert "Seção A" in sections
+    assert "Seção B" in sections
+    last_a = max(i for i, s in enumerate(sections) if s == "Seção A")
+    first_b = min(i for i, s in enumerate(sections) if s == "Seção B")
+    assert last_a < first_b, f"chunks after B inherited A: {sections}"
