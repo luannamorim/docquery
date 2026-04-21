@@ -17,7 +17,10 @@ from pathlib import Path
 # Add src/ to path so docquery is importable when run directly
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from openai import OpenAI
 from ragas import EvaluationDataset, SingleTurnSample, evaluate
+from ragas.embeddings import OpenAIEmbeddings as RagasOpenAIEmbeddings
+from ragas.llms import llm_factory
 from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
 
 from docquery.config import get_settings
@@ -58,8 +61,12 @@ def run(dataset_path: Path, output_dir: Path) -> None:
         sys.exit(1)
 
     print(f"\nStep 2/3: Running RAGAS on {len(samples)} samples")
+    api_key = settings.openai_api_key.get_secret_value()
+    openai_client = OpenAI(api_key=api_key)
+    ragas_llm = llm_factory(settings.llm_model, client=openai_client)
+    ragas_embeddings = RagasOpenAIEmbeddings(model="text-embedding-3-small", client=openai_client)
     dataset = EvaluationDataset(samples=samples)
-    result = evaluate(dataset=dataset, metrics=METRICS)
+    result = evaluate(dataset=dataset, metrics=METRICS, llm=ragas_llm, embeddings=ragas_embeddings)
 
     # Print summary table
     print("\n=== RAGAS Results ===")
