@@ -23,6 +23,7 @@ def test_query_success() -> None:
                 "chunk_index": 0,
                 "score": 9.5,
                 "text": "The answer is 42.",
+                "section": "Passo 1: Preparar",
             }
         ],
         "query": "What is the answer?",
@@ -37,6 +38,28 @@ def test_query_success() -> None:
     assert data["model"] == "gpt-4o-mini"
     assert len(data["sources"]) == 1
     assert data["sources"][0]["source"] == "guide.md"
+    assert data["sources"][0]["section"] == "Passo 1: Preparar"
+
+
+def test_query_source_section_defaults_to_empty() -> None:
+    mock_result = {
+        "answer": "ok",
+        "sources": [
+            {
+                "index": 1,
+                "source": "guide.md",
+                "chunk_index": 0,
+                "score": 1.0,
+                "text": "something",
+            }
+        ],
+        "query": "q",
+        "model": "gpt-4o-mini",
+    }
+    with patch("docquery.api.routes.query_pipeline", return_value=mock_result):
+        response = client.post("/query", json={"query": "q"})
+    assert response.status_code == 200
+    assert response.json()["sources"][0]["section"] == ""
 
 
 def test_query_empty_body() -> None:

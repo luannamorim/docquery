@@ -17,6 +17,10 @@ class Source(BaseModel):
     chunk_index: int = Field(description="Chunk position within the source document")
     score: float = Field(description="Cross-encoder relevance score")
     text: str = Field(description="Retrieved passage text")
+    section: str = Field(
+        default="",
+        description="Nearest header/section breadcrumb, empty when not detected",
+    )
 
 
 class QueryResponse(BaseModel):

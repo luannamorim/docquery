@@ -49,6 +49,7 @@ def generate_answer(
             "chunk_index": ctx["chunk_index"],
             "score": ctx["score"],
             "text": ctx["text"],
+            "section": ctx.get("section", ""),
         }
         for i, ctx in enumerate(contexts)
     ]
