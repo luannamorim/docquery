@@ -75,7 +75,7 @@ make serve
 | Vector DB | ChromaDB, Qdrant, Pinecone | **Qdrant** | Built-in hybrid search + RRF fusion, no separate BM25 infra |
 | Embeddings | OpenAI, Cohere, sentence-transformers | **all-MiniLM-L6-v2** | Zero cost, offline, swappable via config |
 | Sparse vectors | fastembed/BM25, SPLADE, manual TF | **Manual TF + Modifier.IDF** | No extra deps; Qdrant handles IDF at query time |
-| Chunking | Fixed-size, semantic, page-based | **MarkdownTextSplitter + RecursiveCharacterTextSplitter** | Structure-aware for markdown, reliable fallback for others |
+| Chunking | Fixed-size, semantic, page-based | **MarkdownHeaderTextSplitter + RecursiveCharacterTextSplitter** | Splits by H1/H2/H3 first so every chunk carries a full breadcrumb section (e.g. `Deploy > Passo 3`); size splitter handles overflow within each section. PDF/txt with procedural patterns (`Passo N:`, `Step N:`) are promoted to markdown before chunking. |
 | Reranking | None, LLM-based, cross-encoder | **cross-encoder/ms-marco-MiniLM-L-6-v2** | ~50ms latency, measurable quality gain, no LLM cost |
 | Framework | LangChain, LlamaIndex, custom | **Thin custom + individual libs** | No framework lock-in, explicit pipeline control |
 | Evaluation | Manual, RAGAS, custom | **RAGAS 0.4.x** | Industry standard, reproducible, comparable metrics |
@@ -110,10 +110,10 @@ curl -X POST http://localhost:8000/query \
 ```
 ```json
 {
-  "answer": "Markdown files are split using MarkdownTextSplitter [1], while other files use RecursiveCharacterTextSplitter as a fixed-size fallback [2].",
+  "answer": "Markdown files are split using MarkdownHeaderTextSplitter [1], while other files use RecursiveCharacterTextSplitter as a fixed-size fallback [2].",
   "sources": [
-    {"index": 1, "source": "docs/sample/ingestion.md", "chunk_index": 2, "score": 9.4, "text": "..."},
-    {"index": 2, "source": "docs/sample/architecture.md", "chunk_index": 1, "score": 8.1, "text": "..."}
+    {"index": 1, "source": "docs/sample/ingestion.md", "chunk_index": 2, "score": 9.4, "text": "...", "section": "Ingestion Pipeline > Chunking"},
+    {"index": 2, "source": "docs/sample/architecture.md", "chunk_index": 1, "score": 8.1, "text": "...", "section": ""}
   ],
   "query": "What chunking strategy is used?",
   "model": "gpt-4o-mini"
