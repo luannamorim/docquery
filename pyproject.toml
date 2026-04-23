@@ -11,7 +11,7 @@ dependencies = [
     "openai",
     "langchain-text-splitters",
     "pypdf",
-    "ragas",
+    "torch",
 ]
 
 [project.optional-dependencies]
@@ -19,6 +19,10 @@ dev = [
     "pytest",
     "httpx",
     "ruff",
+]
+eval = [
+    "ragas",
+    "langchain-openai",
 ]
 
 [build-system]
@@ -34,6 +38,14 @@ entrypoint = "docquery.api.app:app"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [tool.ruff]
 src = ["src"]
