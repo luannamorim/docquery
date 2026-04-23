@@ -59,16 +59,19 @@ cp .env.example .env
 # Add your OPENAI_API_KEY to .env
 docker compose up
 
-# 2. Ingest sample docs
-docker compose exec app make ingest docs/sample/
+# 2. Ingest sample docs (via API)
+curl -X POST http://localhost:8000/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"path": "docs/sample"}'
 
 # 3. Query
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{"query": "How does hybrid search work?"}'
 
-# 4. Evaluate
-docker compose exec app make eval
+# 4. Evaluate (runs locally against the running API)
+uv sync --extra eval
+make eval
 ```
 
 **Local dev (no Docker):**
@@ -99,7 +102,7 @@ make serve
 
 ## Evaluation Results
 
-Run `docker compose exec app make eval` after ingesting docs to populate results. Results are saved to `eval/results/` as timestamped JSON.
+Run `make eval` locally (after `uv sync --extra eval`) against the running API to populate results. Results are saved to `eval/results/` as timestamped JSON.
 
 | Metric            | Description                            | Baseline |
 | ----------------- | -------------------------------------- | -------- |
@@ -108,7 +111,7 @@ Run `docker compose exec app make eval` after ingesting docs to populate results
 | Context Precision | Retrieved contexts ranked by relevance | —        |
 | Context Recall    | All relevant information retrieved     | —        |
 
-_Run `docker compose exec app make eval` to generate baseline scores._
+_Run `make eval` (after `uv sync --extra eval`) to generate baseline scores._
 
 ## API Reference
 
