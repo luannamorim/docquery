@@ -102,16 +102,18 @@ make serve
 
 ## Evaluation Results
 
-Run `make eval` locally (after `uv sync --extra eval`) against the running API to populate results. Results are saved to `eval/results/` as timestamped JSON.
+Baseline measured on `docs/sample/` (6 documents, 59 chunks, 20-question dataset) with GPT-4o-mini as the generator. Aggregate of 3 sequential RAGAS runs (mean ± stdev) to account for LLM-judge variance.
 
-| Metric            | Description                            | Baseline |
-| ----------------- | -------------------------------------- | -------- |
-| Faithfulness      | Answer grounded in retrieved context   | —        |
-| Answer Relevancy  | Answer addresses the question          | —        |
-| Context Precision | Retrieved contexts ranked by relevance | —        |
-| Context Recall    | All relevant information retrieved     | —        |
+| Metric            | Description                            | Baseline          |
+| ----------------- | -------------------------------------- | ----------------- |
+| Faithfulness      | Answer grounded in retrieved context   | **0.893 ± 0.010** |
+| Answer Relevancy  | Answer addresses the question          | **0.909 ± 0.002** |
+| Context Precision | Retrieved contexts ranked by relevance | **0.931 ± 0.002** |
+| Context Recall    | All relevant information retrieved     | **0.749 ± 0.024** |
 
-_Run `make eval` (after `uv sync --extra eval`) to generate baseline scores._
+Full baseline in `eval/results/baseline.json`; historical snapshots (contaminated corpus, pre-fix) preserved in `eval/results/milestones/`.
+
+To reproduce: `uv sync --extra eval && make eval`. Ad-hoc runs are written to `eval/results/<timestamp>.json` and gitignored.
 
 ## API Reference
 

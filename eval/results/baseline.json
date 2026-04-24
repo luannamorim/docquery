@@ -1,15 +1,69 @@
 {
-  "_note": "Placeholder baseline. Run `make eval` after ingesting docs to generate real results.",
-  "timestamp": "baseline",
+  "baseline_name": "post-corpus-fix (6 sample docs, 59 chunks)",
+  "measured_at": "2026-04-24",
+  "n_runs": 3,
+  "n_samples_per_run": 20,
   "model": "gpt-4o-mini",
   "embedding_model": "all-MiniLM-L6-v2",
   "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
-  "n_samples": 20,
-  "scores": {
-    "faithfulness": null,
-    "answer_relevancy": null,
-    "context_precision": null,
-    "context_recall": null
+  "aggregate_scores": {
+    "faithfulness": {
+      "mean": 0.8926,
+      "stdev": 0.0103,
+      "min": 0.8814,
+      "max": 0.9015
+    },
+    "answer_relevancy": {
+      "mean": 0.9093,
+      "stdev": 0.0016,
+      "min": 0.9081,
+      "max": 0.9111
+    },
+    "context_precision": {
+      "mean": 0.9314,
+      "stdev": 0.0018,
+      "min": 0.9299,
+      "max": 0.9334
+    },
+    "context_recall": {
+      "mean": 0.7486,
+      "stdev": 0.0241,
+      "min": 0.7208,
+      "max": 0.7625
+    }
   },
-  "rows": []
+  "individual_runs": [
+    {
+      "timestamp": "20260424T001026Z",
+      "scores": {
+        "faithfulness": 0.8814,
+        "answer_relevancy": 0.9088,
+        "context_precision": 0.9334,
+        "context_recall": 0.7625
+      }
+    },
+    {
+      "timestamp": "20260424T001533Z",
+      "scores": {
+        "faithfulness": 0.8949,
+        "answer_relevancy": 0.9111,
+        "context_precision": 0.9309,
+        "context_recall": 0.7208
+      }
+    },
+    {
+      "timestamp": "20260424T002023Z",
+      "scores": {
+        "faithfulness": 0.9015,
+        "answer_relevancy": 0.9081,
+        "context_precision": 0.9299,
+        "context_recall": 0.7625
+      }
+    }
+  ],
+  "notes": [
+    "Three sequential runs to capture RAGAS LLM-judge variance.",
+    "Previous baselines preserved in eval/results/milestones/.",
+    "Corpus: docs/sample/ (architecture.md, api_reference.md, configuration.md, evaluation.md, ingestion.md, query_pipeline.md)."
+  ]
 }
