@@ -115,6 +115,8 @@ Full baseline in `eval/results/baseline.json`; historical snapshots (contaminate
 
 To reproduce: `uv sync --extra eval && make eval`. Ad-hoc runs are written to `eval/results/<timestamp>.json` and gitignored.
 
+> **On the approach.** Committing curated JSON snapshots is pragmatic for a single-developer repo where the reviewer is whoever opens the git history. In a production setting this would live in an experiment tracker (MLflow, Weights & Biases, Neptune) with CI-gated eval on every PR and regression thresholds as merge gates — the JSONs here exist to document methodology and results without the extra infrastructure.
+
 ## API Reference
 
 ### `GET /health`
