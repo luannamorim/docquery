@@ -39,7 +39,10 @@ def _settings(**overrides) -> Settings:
 
 
 def _make_client_with_data() -> QdrantClient:
-    """Create in-memory Qdrant with two chunks: public (clearance=0) and secret (clearance=5)."""
+    """Create in-memory Qdrant with two chunks.
+
+    public (clearance=0) and secret (clearance=5).
+    """
     client = QdrantClient(":memory:")
     client.create_collection(
         collection_name=COLLECTION,
@@ -116,7 +119,10 @@ def test_clearance_0_never_returns_secret_chunk(qdrant_client, settings):
         patch("docquery.retrieve.hybrid.sparse_vector") as mock_sparse,
     ):
         mock_embed.return_value = [[0.1] * DIM]
-        mock_sparse.return_value = ([4, 5, 6], [0.5, 0.3, 0.2])  # matches secret chunk sparse
+        mock_sparse.return_value = (
+            [4, 5, 6],
+            [0.5, 0.3, 0.2],
+        )  # matches secret chunk sparse
 
         points = retrieve(query, qdrant_client, settings, user_clearance=0)
 
@@ -132,7 +138,9 @@ def test_clearance_5_returns_secret_chunk(qdrant_client, settings):
         patch("docquery.retrieve.hybrid.embed_texts") as mock_embed,
         patch("docquery.retrieve.hybrid.sparse_vector") as mock_sparse,
     ):
-        mock_embed.return_value = [[0.0, 1.0] + [0.0] * (DIM - 2)]  # aligned with secret dense
+        mock_embed.return_value = [
+            [0.0, 1.0] + [0.0] * (DIM - 2)
+        ]  # aligned with secret dense
         mock_sparse.return_value = ([4, 5, 6], [0.5, 0.3, 0.2])
 
         points = retrieve(query, qdrant_client, settings, user_clearance=5)
@@ -149,7 +157,9 @@ def test_clearance_0_can_access_public_chunk(qdrant_client, settings):
         patch("docquery.retrieve.hybrid.embed_texts") as mock_embed,
         patch("docquery.retrieve.hybrid.sparse_vector") as mock_sparse,
     ):
-        mock_embed.return_value = [[1.0] + [0.0] * (DIM - 1)]  # aligned with public dense
+        mock_embed.return_value = [
+            [1.0] + [0.0] * (DIM - 1)
+        ]  # aligned with public dense
         mock_sparse.return_value = ([1, 2, 3], [0.5, 0.3, 0.2])
 
         points = retrieve(query, qdrant_client, settings, user_clearance=0)
@@ -160,13 +170,11 @@ def test_clearance_0_can_access_public_chunk(qdrant_client, settings):
     )
 
 
-def test_api_header_propagates_clearance():
-    """Verify the X-User-Clearance header is read and passed to query_pipeline."""
-    from docquery.api.app import app
+def _make_capturing_pipeline() -> tuple[dict, callable]:
+    """Return (captured, mock_fn) pair for testing clearance propagation."""
+    captured: dict = {}
 
-    captured = {}
-
-    def _mock_pipeline(query: str, settings=None, user_clearance: int = 0) -> dict:
+    def _pipeline(query: str, settings=None, user_clearance: int = 0) -> dict:
         captured["user_clearance"] = user_clearance
         return {
             "answer": "test",
@@ -178,7 +186,15 @@ def test_api_header_propagates_clearance():
             "cost_usd": 0.0,
         }
 
-    with patch("docquery.api.routes.query_pipeline", side_effect=_mock_pipeline):
+    return captured, _pipeline
+
+
+def test_api_header_propagates_clearance():
+    """Verify the X-User-Clearance header is read and passed to query_pipeline."""
+    from docquery.api.app import app
+
+    captured, mock_fn = _make_capturing_pipeline()
+    with patch("docquery.api.routes.query_pipeline", side_effect=mock_fn):
         client = TestClient(app)
         response = client.post(
             "/query",
@@ -194,21 +210,8 @@ def test_api_default_clearance_is_zero():
     """Without the header, user_clearance defaults to 0."""
     from docquery.api.app import app
 
-    captured = {}
-
-    def _mock_pipeline(query: str, settings=None, user_clearance: int = 0) -> dict:
-        captured["user_clearance"] = user_clearance
-        return {
-            "answer": "test",
-            "sources": [],
-            "query": query,
-            "model": "gpt-4o-mini",
-            "tokens_in": 0,
-            "tokens_out": 0,
-            "cost_usd": 0.0,
-        }
-
-    with patch("docquery.api.routes.query_pipeline", side_effect=_mock_pipeline):
+    captured, mock_fn = _make_capturing_pipeline()
+    with patch("docquery.api.routes.query_pipeline", side_effect=mock_fn):
         client = TestClient(app)
         response = client.post("/query", json={"query": "what is hybrid search?"})
 

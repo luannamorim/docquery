@@ -38,7 +38,9 @@ def expand_contexts(
                 must=[
                     FieldCondition(key="source", match=MatchValue(value=src)),
                     FieldCondition(key="chunk_index", range=Range(gte=lo, lte=hi)),
-                    FieldCondition(key="clearance_level", range=Range(lte=user_clearance)),
+                    FieldCondition(
+                        key="clearance_level", range=Range(lte=user_clearance)
+                    ),
                 ]
             ),
             limit=2 * window + 1,

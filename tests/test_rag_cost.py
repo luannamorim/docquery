@@ -32,7 +32,15 @@ def _settings(**overrides) -> Settings:
 
 
 def _contexts():
-    return [{"source": "doc.md", "chunk_index": 0, "score": 0.9, "text": "ctx", "section": ""}]
+    return [
+        {
+            "source": "doc.md",
+            "chunk_index": 0,
+            "score": 0.9,
+            "text": "ctx",
+            "section": "",
+        }
+    ]
 
 
 @patch("docquery.generate.rag.OpenAI")

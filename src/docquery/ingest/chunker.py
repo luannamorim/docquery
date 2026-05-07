@@ -96,11 +96,14 @@ def _chunk_semantic(doc: Document, settings: Settings) -> list[Chunk]:
 
 
 def chunk_document(doc: Document, settings: Settings | None = None) -> list[Chunk]:
-    """Split a document into chunks using the configured chunker_strategy.
+    """Split a document into chunks using the configured strategy.
 
-    markdown  — header-aware split (H1/H2/H3) then size-based, preserves section breadcrumb
-    recursive — plain size-based split, no section metadata (default fallback)
-    semantic  — embedding-based split on semantic boundaries (requires langchain-experimental)
+    markdown  — header-aware split (H1/H2/H3) then size-based,
+                preserves section breadcrumb
+    recursive — plain size-based split, no section metadata
+                (default fallback)
+    semantic  — embedding-based split on semantic boundaries
+                (requires langchain-experimental)
     """
     settings = settings or get_settings()
 
@@ -113,3 +116,5 @@ def chunk_document(doc: Document, settings: Settings | None = None) -> list[Chun
             return _chunk_recursive(doc, settings)
         case "semantic":
             return _chunk_semantic(doc, settings)
+        case _:
+            raise ValueError(f"Unknown chunker_strategy: {settings.chunker_strategy!r}")

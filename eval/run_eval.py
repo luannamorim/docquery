@@ -11,7 +11,7 @@ Requires:
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Add src/ to path so docquery is importable when run directly
@@ -21,7 +21,12 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from ragas import EvaluationDataset, SingleTurnSample, evaluate
 from ragas.embeddings import LangchainEmbeddingsWrapper
 from ragas.llms import LangchainLLMWrapper
-from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness  # noqa: E402
+from ragas.metrics import (  # noqa: E402
+    answer_relevancy,
+    context_precision,
+    context_recall,
+    faithfulness,
+)
 
 from docquery.config import get_settings
 from docquery.generate.rag import query_pipeline
@@ -73,15 +78,17 @@ def run(dataset_path: Path, output_dir: Path) -> None:
 
     print(f"\nStep 2/3: Running RAGAS on {len(samples)} samples")
     api_key = settings.openai_api_key.get_secret_value()
-    # LangchainLLMWrapper/EmbeddingsWrapper needed: RAGAS metrics call embed_query internally,
-    # which is a LangChain interface not implemented by ragas.embeddings.OpenAIEmbeddings.
-    # max_tokens=2048 avoids truncation on faithfulness verdicts (RAGAS produces long JSON).
+    # LangchainLLMWrapper/EmbeddingsWrapper: RAGAS calls embed_query internally —
+    # a LangChain interface not in ragas.embeddings.OpenAIEmbeddings.
+    # max_tokens=2048 avoids truncation on faithfulness verdicts (long JSON).
     ragas_llm = LangchainLLMWrapper(
         ChatOpenAI(model=settings.llm_model, api_key=api_key, max_tokens=2048)
     )
     ragas_embeddings = LangchainEmbeddingsWrapper(OpenAIEmbeddings(api_key=api_key))
     dataset = EvaluationDataset(samples=samples)
-    result = evaluate(dataset=dataset, metrics=METRICS, llm=ragas_llm, embeddings=ragas_embeddings)
+    result = evaluate(
+        dataset=dataset, metrics=METRICS, llm=ragas_llm, embeddings=ragas_embeddings
+    )
 
     # Print summary table
     print("\n=== RAGAS Results ===")
@@ -91,7 +98,7 @@ def run(dataset_path: Path, output_dir: Path) -> None:
 
     # Save results
     output_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     output_path = output_dir / f"{timestamp}.json"
 
     df = result.to_pandas()

@@ -33,7 +33,8 @@ def retrieve(
     if settings.qdrant_collection not in existing:
         return []
 
-    dense_vec = embed_texts([query], settings=settings)[0].tolist()
+    raw = embed_texts([query], settings=settings)[0]
+    dense_vec = raw.tolist() if hasattr(raw, "tolist") else raw
     sparse_indices, sparse_values = sparse_vector(query)
 
     clearance_filter = Filter(

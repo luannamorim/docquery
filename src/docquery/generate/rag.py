@@ -31,7 +31,10 @@ def generate_answer(
     settings: Settings,
     openai_client: OpenAI,
 ) -> dict:
-    """Call the LLM with ranked context passages and return the answer with sources."""
+    """Call the LLM with ranked context passages.
+
+    Return answer, sources, and token cost.
+    """
 
     def _fmt(i: int, ctx: dict) -> str:
         section = f"[Section: {ctx['section']}]\n" if ctx.get("section") else ""
@@ -97,7 +100,9 @@ def query_pipeline(
 
     points = retrieve(query, qdrant, settings, user_clearance=user_clearance)
     contexts = rerank(query, points, settings)
-    contexts = expand_contexts(contexts, qdrant, settings, user_clearance=user_clearance)
+    contexts = expand_contexts(
+        contexts, qdrant, settings, user_clearance=user_clearance
+    )
     logger.info(
         "Query: %r — retrieved %d points, reranked to %d",
         query,

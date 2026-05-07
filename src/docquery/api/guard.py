@@ -22,39 +22,35 @@ import unicodedata
 # ---------------------------------------------------------------------------
 
 _INSTRUCTION_OVERRIDE = re.compile(
-    r"(?i)"
-    r"(ignore|disregard|forget|override|bypass|skip)\s+"
-    r"(previous|prior|all|the|above|any)\s+"
+    r"(ignore|disregard|forget|override|bypass|skip)"
+    r"(?:\s+\w+){0,3}\s+"
     r"(instruction|instructions|prompt|prompts|context|rule|rules|constraint|constraints|guideline|guidelines)",
     re.IGNORECASE,
 )
 
 _ROLE_INJECTION = re.compile(
-    r"(?i)"
     r"("
-    r"\b(system|assistant|user)\s*:\s*"        # "system: do this"
-    r"|<\|(?:im_start|im_end|endoftext)\|>"     # OpenAI token sentinels
-    r"|###\s*(system|instruction|prompt)"       # markdown-style fake headers
-    r"|<sys>|</sys>"                            # XML-style injection
+    r"\b(system|assistant|user)\s*:\s*"  # "system: do this"
+    r"|<\|(?:im_start|im_end|endoftext)\|>"  # OpenAI token sentinels
+    r"|###\s*(system|instruction|prompt)"  # markdown-style fake headers
+    r"|<sys>|</sys>"  # XML-style injection
     r")",
     re.IGNORECASE,
 )
 
 _PROMPT_LEAK = re.compile(
-    r"(?i)"
-    r"(reveal|print|output|show|repeat|display|tell me|what is|what are)\s+"
-    r"(your\s+)?"
+    r"(reveal|print|output|show|repeat|display|tell me|what is|what are)"
+    r"(?:\s+\w+){0,2}\s+"
     r"(system\s+prompt|system\s+message|instructions?|hidden\s+prompt|initial\s+prompt|"
-    r"original\s+prompt|full\s+prompt|base\s+prompt)",
+    r"initial\s+instructions?|original\s+prompt|full\s+prompt|base\s+prompt)",
     re.IGNORECASE,
 )
 
 _JAILBREAK = re.compile(
-    r"(?i)"
     r"("
     r"pretend\s+(you\s+are|to\s+be|you're|your\s+are)\s+(a|an)?\s*(different|evil|jailbreak|unrestricted|unfiltered|DAN|GPT)"
     r"|you\s+are\s+now\s+(DAN|evil\s+AI|unfiltered|jailbreak)"
-    r"|act\s+as\s+(if\s+)?(you\s+have\s+no\s+restrictions|DAN|an?\s+unrestricted)"
+    r"|act\s+as\s+(if\s+)?(you\s+have\s+no\s+restrictions|DAN|an?\s+(unrestricted|unfiltered))"
     r")",
     re.IGNORECASE,
 )

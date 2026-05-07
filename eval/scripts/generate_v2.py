@@ -35,14 +35,17 @@ from docquery.config import get_settings
 FACTUAL_SEED = """\
 You are building an evaluation dataset for a RAG system over technical documentation.
 
-Given the text below (from {source}), generate {n} factual questions with ground-truth answers.
+Given the text below (from {source}), generate {n} factual questions \
+with ground-truth answers.
 Rules:
 - Each question must be answerable using ONLY the provided text — no external knowledge
 - Ground truth must be a complete, self-contained answer (2-5 sentences)
-- Vary specificity: include detail-level questions (exact config values, API fields, etc.)
+- Vary specificity: include detail-level questions (exact config values, \
+API fields, etc.)
 - Do NOT generate yes/no questions
 
-Return a JSON array of objects: [{{"question": "...", "ground_truth": "...", "source_doc": "{source}"}}]
+Return a JSON array of objects: \
+[{{"question": "...", "ground_truth": "...", "source_doc": "{source}"}}]
 Return ONLY the JSON, no markdown fences.
 
 Text:
@@ -52,14 +55,16 @@ Text:
 MULTI_HOP_SEED = """\
 You are building an evaluation dataset for a RAG system over technical documentation.
 
-Given the texts below (from multiple docs), generate {n} multi-hop questions that require
-synthesising information from at least two of the provided passages.
+Given the texts below (from multiple docs), generate {n} multi-hop questions \
+that require synthesising information from at least two of the provided passages.
 Rules:
 - Question cannot be answered from a single passage alone
 - Ground truth must cite which concepts come from which source
-- Prefer questions about how components interact (e.g. how does chunking affect retrieval quality?)
+- Prefer questions about how components interact \
+(e.g. how does chunking affect retrieval quality?)
 
-Return a JSON array: [{{"question": "...", "ground_truth": "...", "source_doc": "multiple"}}]
+Return a JSON array: \
+[{{"question": "...", "ground_truth": "...", "source_doc": "multiple"}}]
 Return ONLY the JSON, no markdown fences.
 
 Texts:
@@ -69,13 +74,15 @@ Texts:
 COMPARATIVE_SEED = """\
 You are building an evaluation dataset for a RAG system over technical documentation.
 
-Given the texts below, generate {n} comparative questions (differences, trade-offs, when-to-use).
+Given the texts below, generate {n} comparative questions \
+(differences, trade-offs, when-to-use).
 Rules:
 - Each question must have a clear "A vs B" or "X vs Y" structure
 - Ground truth must explain the difference, not just list features
 - Base questions on entities actually present in the texts
 
-Return a JSON array: [{{"question": "...", "ground_truth": "...", "source_doc": "multiple"}}]
+Return a JSON array: \
+[{{"question": "...", "ground_truth": "...", "source_doc": "multiple"}}]
 Return ONLY the JSON, no markdown fences.
 
 Texts:
@@ -89,14 +96,18 @@ The corpus covers: {topics}.
 
 Generate {n} questions that CANNOT be answered from this corpus — the topic is plausible
 and related, but the specific information is not in the docs.
-Examples: pricing, deployment to specific clouds, integration with external tools not mentioned.
+Examples: pricing, deployment to specific clouds, integration with \
+external tools not mentioned.
 
 Rules:
 - Questions must sound reasonable for this domain
-- Ground truth is always: "This information is not covered in the available documentation."
+- Ground truth is always: \
+"This information is not covered in the available documentation."
 - Do NOT ask about concepts completely unrelated to the domain
 
-Return a JSON array: [{{"question": "...", "ground_truth": "This information is not covered in the available documentation.", "source_doc": "N/A"}}]
+Return a JSON array: [{{"question": "...", "ground_truth": \
+"This information is not covered in the available documentation.", \
+"source_doc": "N/A"}}]
 Return ONLY the JSON, no markdown fences.
 """
 
@@ -171,7 +182,9 @@ def generate_comparative(
     return items[:n]
 
 
-def generate_unanswerable(client: OpenAI, model: str, topics: str, n: int) -> list[dict]:
+def generate_unanswerable(
+    client: OpenAI, model: str, topics: str, n: int
+) -> list[dict]:
     print(f"  unanswerable: {n} questions")
     prompt = UNANSWERABLE_SEED.format(topics=topics, n=n)
     items = _call_llm(client, model, prompt)

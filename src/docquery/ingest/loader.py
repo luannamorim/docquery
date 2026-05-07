@@ -1,3 +1,4 @@
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -5,7 +6,10 @@ from pathlib import Path
 
 from docquery.config import Settings, get_settings
 
+logger = logging.getLogger(__name__)
+
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+_FRONTMATTER_SCAN_LIMIT = 4096  # frontmatter won't exceed 4 KB; bounds backtracking
 
 
 @dataclass
@@ -20,17 +24,21 @@ def _parse_frontmatter(text: str) -> tuple[str, dict[str, int]]:
     Supports only a single level of key: value pairs where value is an integer.
     Falls back to regex if pyyaml is not installed.
     """
-    m = _FRONTMATTER_RE.match(text)
+    m = _FRONTMATTER_RE.match(text[:_FRONTMATTER_SCAN_LIMIT])
     if not m:
         return text, {}
-    body = text[m.end():]
+    body = text[m.end() :]
     raw = m.group(1)
     meta: dict[str, int] = {}
     try:
         import yaml  # pyyaml, transitively available via langchain
+
         parsed = yaml.safe_load(raw) or {}
         meta = {k: int(v) for k, v in parsed.items() if isinstance(v, (int, float))}
     except Exception:
+        logger.debug(
+            "yaml.safe_load failed on frontmatter, falling back to regex", exc_info=True
+        )
         for line in raw.splitlines():
             if ":" in line:
                 key, _, val = line.partition(":")
