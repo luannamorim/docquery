@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1024
+    llm_price_input_per_1m: float = 0.15
+    llm_price_output_per_1m: float = 0.60
 
 
 @lru_cache

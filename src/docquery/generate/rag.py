@@ -59,10 +59,20 @@ def generate_answer(
         for i, ctx in enumerate(contexts)
     ]
 
+    tokens_in = response.usage.prompt_tokens if response.usage else 0
+    tokens_out = response.usage.completion_tokens if response.usage else 0
+    cost_usd = (
+        tokens_in * settings.llm_price_input_per_1m
+        + tokens_out * settings.llm_price_output_per_1m
+    ) / 1_000_000
+
     return {
         "answer": answer,
         "sources": sources,
         "model": response.model,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cost_usd": cost_usd,
     }
 
 
@@ -96,6 +106,9 @@ def query_pipeline(query: str, settings: Settings | None = None) -> dict:
             "sources": [],
             "query": query,
             "model": settings.llm_model,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cost_usd": 0.0,
         }
 
     result = generate_answer(query, contexts, settings, openai_client)
