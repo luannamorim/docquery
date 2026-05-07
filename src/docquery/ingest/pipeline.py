@@ -11,6 +11,7 @@ from qdrant_client.models import (
     FilterSelector,
     MatchValue,
     Modifier,
+    PayloadSchemaType,
     PointStruct,
     SparseVector,
     SparseVectorParams,
@@ -41,6 +42,11 @@ def ensure_collection(client: QdrantClient, settings: Settings) -> None:
             sparse_vectors_config={
                 "sparse": SparseVectorParams(modifier=Modifier.IDF),
             },
+        )
+        client.create_payload_index(
+            collection_name=settings.qdrant_collection,
+            field_name="clearance_level",
+            field_schema=PayloadSchemaType.INTEGER,
         )
 
 
@@ -80,6 +86,7 @@ def ingest_chunks(
                 "chunk_index": int(chunk.metadata.get("chunk_index", 0)),
                 "file_type": chunk.metadata.get("file_type", ""),
                 "section": chunk.metadata.get("section", ""),
+                "clearance_level": int(chunk.metadata.get("clearance_level", 0)),
             },
         )
         for chunk, dense, (indices, values) in zip(

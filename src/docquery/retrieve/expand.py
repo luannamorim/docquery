@@ -8,10 +8,12 @@ def expand_contexts(
     contexts: list[dict],
     client: QdrantClient,
     settings: Settings,
+    user_clearance: int = 0,
 ) -> list[dict]:
     """Expand each reranked context with adjacent chunks from the same source.
 
     For each context, fetches chunks at chunk_index in [idx-window, idx+window],
+    filters by clearance_level <= user_clearance to prevent neighbor leakage,
     sorts them, and concatenates their text. If two reranked contexts share the
     same expansion window (overlapping neighbors), the duplicate is dropped.
     """
@@ -36,6 +38,7 @@ def expand_contexts(
                 must=[
                     FieldCondition(key="source", match=MatchValue(value=src)),
                     FieldCondition(key="chunk_index", range=Range(gte=lo, lte=hi)),
+                    FieldCondition(key="clearance_level", range=Range(lte=user_clearance)),
                 ]
             ),
             limit=2 * window + 1,

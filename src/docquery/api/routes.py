@@ -2,7 +2,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 
 from docquery.api.schemas import (
     HealthResponse,
@@ -19,6 +19,19 @@ from docquery.ingest.pipeline import ingest_path
 router = APIRouter()
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+def get_user_clearance(x_user_clearance: Annotated[int, Header()] = 0) -> int:
+    """Read clearance level from the X-User-Clearance HTTP header (default 0).
+
+    In a real system this would come from a verified JWT claim. Here it is an
+    unauthenticated header to demonstrate RBAC filtering without adding an auth
+    dependency outside the sprint scope.
+    """
+    return max(0, x_user_clearance)
+
+
+ClearanceDep = Annotated[int, Depends(get_user_clearance)]
 
 _tasks: dict[str, dict] = {}
 
@@ -38,8 +51,12 @@ def health() -> HealthResponse:
 
 
 @router.post("/query", tags=["query"])
-def query(request: QueryRequest, settings: SettingsDep) -> QueryResponse:
-    result = query_pipeline(request.query, settings=settings)
+def query(
+    request: QueryRequest,
+    settings: SettingsDep,
+    user_clearance: ClearanceDep,
+) -> QueryResponse:
+    result = query_pipeline(request.query, settings=settings, user_clearance=user_clearance)
     return QueryResponse(**result)
 
 

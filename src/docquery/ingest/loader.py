@@ -5,11 +5,40 @@ from pathlib import Path
 
 from docquery.config import Settings, get_settings
 
+_FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
+
 
 @dataclass
 class Document:
     content: str
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, str | int] = field(default_factory=dict)
+
+
+def _parse_frontmatter(text: str) -> tuple[str, dict[str, int]]:
+    """Strip YAML frontmatter and return (body, {key: int_value}) for integer fields.
+
+    Supports only a single level of key: value pairs where value is an integer.
+    Falls back to regex if pyyaml is not installed.
+    """
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return text, {}
+    body = text[m.end():]
+    raw = m.group(1)
+    meta: dict[str, int] = {}
+    try:
+        import yaml  # pyyaml, transitively available via langchain
+        parsed = yaml.safe_load(raw) or {}
+        meta = {k: int(v) for k, v in parsed.items() if isinstance(v, (int, float))}
+    except Exception:
+        for line in raw.splitlines():
+            if ":" in line:
+                key, _, val = line.partition(":")
+                try:
+                    meta[key.strip()] = int(val.strip())
+                except ValueError:
+                    pass
+    return body, meta
 
 
 def _promote_headings(text: str, patterns: list[str]) -> tuple[str, bool]:
@@ -30,13 +59,16 @@ def _promote_headings(text: str, patterns: list[str]) -> tuple[str, bool]:
 
 def load_text(path: Path, settings: Settings | None = None) -> Document:
     settings = settings or get_settings()
-    content = path.read_text(encoding="utf-8")
-    content, promoted = _promote_headings(content, settings.heading_patterns)
+    raw = path.read_text(encoding="utf-8")
+    fm_meta: dict[str, int] = {}
+    if path.suffix.lower() == ".md":
+        raw, fm_meta = _parse_frontmatter(raw)
+    content, promoted = _promote_headings(raw, settings.heading_patterns)
     file_type = ".md" if promoted else path.suffix
-    return Document(
-        content=content,
-        metadata={"source": str(path), "file_type": file_type},
-    )
+    meta: dict[str, str | int] = {"source": str(path), "file_type": file_type}
+    if "clearance" in fm_meta:
+        meta["clearance_level"] = fm_meta["clearance"]
+    return Document(content=content, metadata=meta)
 
 
 def load_pdf(path: Path, settings: Settings | None = None) -> Document:

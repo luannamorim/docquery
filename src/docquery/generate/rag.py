@@ -76,18 +76,24 @@ def generate_answer(
     }
 
 
-def query_pipeline(query: str, settings: Settings | None = None) -> dict:
+def query_pipeline(
+    query: str,
+    settings: Settings | None = None,
+    user_clearance: int = 0,
+) -> dict:
     """Full query pipeline: retrieve → rerank → generate.
 
-    Returns {"answer": str, "sources": list[dict], "query": str, "model": str}.
+    Returns {"answer": str, "sources": list[dict], "query": str, "model": str,
+             "tokens_in": int, "tokens_out": int, "cost_usd": float}.
+    Only chunks with clearance_level <= user_clearance are retrieved.
     """
     settings = settings or get_settings()
     qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
     openai_client = OpenAI(api_key=settings.openai_api_key.get_secret_value() or None)
 
-    points = retrieve(query, qdrant, settings)
+    points = retrieve(query, qdrant, settings, user_clearance=user_clearance)
     contexts = rerank(query, points, settings)
-    contexts = expand_contexts(contexts, qdrant, settings)
+    contexts = expand_contexts(contexts, qdrant, settings, user_clearance=user_clearance)
     logger.info(
         "Query: %r — retrieved %d points, reranked to %d",
         query,
