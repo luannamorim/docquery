@@ -1,0 +1,608 @@
+[
+  {
+    "question": "Why was Qdrant chosen over ChromaDB and Pinecone?",
+    "ground_truth": "Qdrant was chosen because it has hybrid search (dense + sparse vectors) built in. This eliminates the need for a separate BM25 indexing service. Qdrant also performs server-side Reciprocal Rank Fusion (RRF) to merge dense and sparse results without any client-side code.",
+    "source_doc": "architecture.md",
+    "type": "factual"
+  },
+  {
+    "question": "What are the three independent pipelines in docquery?",
+    "ground_truth": "The three independent pipelines are: Ingestion (loads, chunks, embeds, and stores documents in Qdrant), Query (embeds a query, retrieves chunks via hybrid search, reranks them, and generates an answer), and Evaluation (runs RAGAS metrics against a test dataset to measure retrieval and generation quality).",
+    "source_doc": "architecture.md",
+    "type": "factual"
+  },
+  {
+    "question": "What dimensionality do the dense vectors produced by all-MiniLM-L6-v2 have?",
+    "ground_truth": "The all-MiniLM-L6-v2 model produces 384-dimensional dense vectors.",
+    "source_doc": "architecture.md",
+    "type": "factual"
+  },
+  {
+    "question": "Why is GPT-4o-mini used as the LLM in docquery?",
+    "ground_truth": "GPT-4o-mini is used because it is cost-effective, fast, and capable of following citation instructions reliably. The model name is also configurable via the LLM_MODEL environment variable.",
+    "source_doc": "architecture.md",
+    "type": "factual"
+  },
+  {
+    "question": "Why does docquery use synchronous endpoint handlers in FastAPI instead of async?",
+    "ground_truth": "FastAPI provides async-capable HTTP endpoints, but the underlying pipeline code uses synchronous libraries (sentence-transformers, qdrant-client, openai). Because of this, endpoint handlers use sync `def` functions, which FastAPI runs in a thread pool automatically.",
+    "source_doc": "architecture.md",
+    "type": "factual"
+  },
+  {
+    "question": "What algorithm does Qdrant use to merge dense and sparse search results?",
+    "ground_truth": "Qdrant uses Reciprocal Rank Fusion (RRF) server-side to merge dense and sparse results. This means no client-side merging code is needed.",
+    "source_doc": "architecture.md",
+    "type": "factual"
+  },
+  {
+    "question": "How does a cross-encoder differ from a bi-encoder in the context of reranking?",
+    "ground_truth": "Cross-encoders are slower than bi-encoders because they process the query and document together rather than independently. This joint processing enables full attention between query and document, producing significantly more accurate relevance scores. Bi-encoders (like the retrieval embedder) encode query and document independently, making them faster but less accurate.",
+    "source_doc": "architecture.md",
+    "type": "factual"
+  },
+  {
+    "question": "What does the GET /health endpoint return?",
+    "ground_truth": "The GET /health endpoint returns a JSON object with a single field: {\"status\": \"ok\"}.",
+    "source_doc": "api_reference.md",
+    "type": "factual"
+  },
+  {
+    "question": "What HTTP status code does the /ingest endpoint return when the path does not exist?",
+    "ground_truth": "The /ingest endpoint returns a 404 status code when the specified path does not exist on the server.",
+    "source_doc": "api_reference.md",
+    "type": "factual"
+  },
+  {
+    "question": "What HTTP status code indicates a request validation error in docquery's API?",
+    "ground_truth": "A 422 status code indicates a request validation error, such as a missing or invalid field in the request body.",
+    "source_doc": "api_reference.md",
+    "type": "factual"
+  },
+  {
+    "question": "Where can the interactive Swagger UI be accessed?",
+    "ground_truth": "The interactive Swagger UI is available at http://localhost:8000/docs when the server is running.",
+    "source_doc": "api_reference.md",
+    "type": "factual"
+  },
+  {
+    "question": "What fields are included in each source object of the /query response?",
+    "ground_truth": "Each source object in the /query response includes: index (1-based citation number), source (document path), chunk_index (position within the document), score (relevance score), and text (the retrieved passage text).",
+    "source_doc": "api_reference.md",
+    "type": "factual"
+  },
+  {
+    "question": "What command starts the docquery server in development mode with auto-reload?",
+    "ground_truth": "The command `make serve` starts the server in development mode with auto-reload. It runs `uv run fastapi dev` under the hood.",
+    "source_doc": "api_reference.md",
+    "type": "factual"
+  },
+  {
+    "question": "What is the default value for QDRANT_HOST?",
+    "ground_truth": "The default value for QDRANT_HOST is \"localhost\".",
+    "source_doc": "configuration.md",
+    "type": "factual"
+  },
+  {
+    "question": "In what order are configuration settings resolved in docquery?",
+    "ground_truth": "Settings are resolved in this priority order (highest first): environment variables, values from the .env file at the repo root, then defaults defined in the Settings class.",
+    "source_doc": "configuration.md",
+    "type": "factual"
+  },
+  {
+    "question": "What is the purpose of the lru_cache decorator on get_settings()?",
+    "ground_truth": "The lru_cache decorator ensures that the same Settings instance is reused across the process — get_settings() is called once and cached. This also makes testing straightforward: override the FastAPI dependency and swap the settings.",
+    "source_doc": "configuration.md",
+    "type": "factual"
+  },
+  {
+    "question": "How is the FastAPI application entry point declared for the CLI?",
+    "ground_truth": "The application entry point is declared in pyproject.toml under [tool.fastapi] as `entrypoint = \"docquery.api.app:app\"`. The FastAPI CLI reads this to locate the app for both development and production serving.",
+    "source_doc": "configuration.md",
+    "type": "factual"
+  },
+  {
+    "question": "What command does the Docker runtime container use to start the server?",
+    "ground_truth": "The Docker runtime container uses `python -m uvicorn docquery.api.app:app --host 0.0.0.0 --port 8000` to start the server. It does not use the FastAPI CLI or uv.",
+    "source_doc": "configuration.md",
+    "type": "factual"
+  },
+  {
+    "question": "Are environment variable names for docquery settings case-sensitive?",
+    "ground_truth": "No, field names are case-insensitive. For example, QDRANT_HOST and qdrant_host map to the same field in the Settings class.",
+    "source_doc": "configuration.md",
+    "type": "factual"
+  },
+  {
+    "question": "What does faithfulness measure in RAGAS evaluation?",
+    "ground_truth": "Faithfulness measures whether the generated answer makes any claim not supported by the retrieved context. RAGAS breaks the answer into atomic statements and checks each against the retrieved chunks using an LLM judge. A score of 1.0 means every claim is traceable to the context; lower scores indicate hallucination.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "How does RAGAS compute answer relevancy?",
+    "ground_truth": "RAGAS computes answer relevancy by generating synthetic questions from the answer and measuring cosine similarity with the original query. An answer that is faithful but off-topic scores low here.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "What does context precision measure in RAGAS?",
+    "ground_truth": "Context precision measures whether the retrieved chunks are ranked with the most relevant ones first. It is a retrieval-side metric that is indifferent to what the LLM does with the context. Low precision means the reranker is letting noise into the top-k, diluting the LLM's signal.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "What does context recall measure in RAGAS?",
+    "ground_truth": "Context recall measures whether all relevant information needed to reconstruct the ground-truth answer was retrieved. RAGAS decomposes the reference answer into statements and checks how many can be attributed to retrieved context. If relevant information exists in the corpus but was not retrieved, this metric drops.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "Why is context recall typically the hardest RAGAS metric to improve?",
+    "ground_truth": "Context recall is the hardest to improve because it reflects both corpus coverage (is the answer in the docs at all?) and retrieval quality (does the retriever find it?). A global recall drop often traces to just a few questions where the reference answer references information not present in the corpus.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "How much run-to-run variance in RAGAS metrics is expected?",
+    "ground_truth": "Run-to-run variance of ±0.02-0.05 on aggregate scores is expected, because three of the four RAGAS metrics (faithfulness, answer relevancy, context recall) use an LLM as a judge.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "How many times should eval be run to produce a rigorous baseline?",
+    "ground_truth": "For a rigorous baseline, the evaluation should be run 3-5 times and the mean and standard deviation should be reported rather than a single number.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "What file formats does the ingestion pipeline support?",
+    "ground_truth": "The ingestion pipeline supports Markdown (.md), plain text (.txt), and PDF (.pdf) files. Unsupported formats are silently skipped when ingesting a directory.",
+    "source_doc": "ingestion.md",
+    "type": "factual"
+  },
+  {
+    "question": "How are sparse vectors computed at ingestion time?",
+    "ground_truth": "Sparse vectors are computed by lowercasing and splitting text on non-alphanumeric characters to extract tokens, counting term frequencies, and mapping them to integer indices using a stable MD5 hash. Qdrant applies IDF weighting at query time via the Modifier.IDF setting, so only raw term frequencies are stored.",
+    "source_doc": "ingestion.md",
+    "type": "factual"
+  },
+  {
+    "question": "What is the default batch size for upserting chunks to Qdrant?",
+    "ground_truth": "Chunks are upserted to Qdrant in batches of 100.",
+    "source_doc": "ingestion.md",
+    "type": "factual"
+  },
+  {
+    "question": "Which fields are included in the Qdrant point payload during ingestion?",
+    "ground_truth": "Each Qdrant point payload includes: text (the chunk content), source (file path), chunk_index (position within the document), and file_type.",
+    "source_doc": "ingestion.md",
+    "type": "factual"
+  },
+  {
+    "question": "What default chunk overlap is used during ingestion?",
+    "ground_truth": "The default CHUNK_OVERLAP is 50 characters. This ensures content near chunk boundaries appears in adjacent chunks, improving recall for queries that span chunk edges.",
+    "source_doc": "ingestion.md",
+    "type": "factual"
+  },
+  {
+    "question": "What two vector representations is the query embedded into?",
+    "ground_truth": "The query is embedded into a dense vector (encoded with all-MiniLM-L6-v2, the same model used at ingestion) and a sparse vector (tokenized with the same MD5-hashed term frequency approach used at ingestion).",
+    "source_doc": "query_pipeline.md",
+    "type": "factual"
+  },
+  {
+    "question": "What is the RRF score formula used by Qdrant?",
+    "ground_truth": "The RRF score formula is: score = Σ 1 / (k + rank), where k=60 by default. Each document's score is the sum of this value over both the dense and sparse result lists based on its rank in each.",
+    "source_doc": "query_pipeline.md",
+    "type": "factual"
+  },
+  {
+    "question": "What is the default value of RETRIEVAL_TOP_K?",
+    "ground_truth": "The default value of RETRIEVAL_TOP_K is 20. This is the number of candidates retrieved per search method (dense and sparse) before RRF fusion and reranking.",
+    "source_doc": "query_pipeline.md",
+    "type": "factual"
+  },
+  {
+    "question": "How does the answer generation step instruct the LLM to cite passages?",
+    "ground_truth": "The system prompt instructs the LLM to answer based only on the provided context and cite passages inline using [1], [2], etc., where the number corresponds to the passage number. The numbered context block is assembled from the top-k reranked chunks with their source metadata.",
+    "source_doc": "query_pipeline.md",
+    "type": "factual"
+  },
+  {
+    "question": "What is the default value of LLM_TEMPERATURE?",
+    "ground_truth": "The default value of LLM_TEMPERATURE is 0.0.",
+    "source_doc": "query_pipeline.md",
+    "type": "factual"
+  },
+  {
+    "question": "What model is used for cross-encoder reranking?",
+    "ground_truth": "The cross-encoder/ms-marco-MiniLM-L-6-v2 model is used for cross-encoder reranking.",
+    "source_doc": "query_pipeline.md",
+    "type": "factual"
+  },
+  {
+    "question": "What are the configurable environment variables for the query pipeline?",
+    "ground_truth": "The configurable environment variables for the query pipeline are: RETRIEVAL_TOP_K (candidates per retrieval method), RERANKER_MODEL (reranker model name), RERANKER_TOP_K (chunks passed to LLM), OPENAI_API_KEY (required for generation), LLM_MODEL (OpenAI model), LLM_TEMPERATURE (generation temperature), and LLM_MAX_TOKENS (max response tokens).",
+    "source_doc": "query_pipeline.md",
+    "type": "factual"
+  },
+  {
+    "question": "What makes docquery's answer a RAG response rather than a raw LLM response?",
+    "ground_truth": "High faithfulness is the primary guarantee a RAG system offers over a raw LLM: the model is kept honest by grounding. The system prompt instructs the LLM to answer using only the provided context passages and cite every passage used. If the context does not contain enough information, the LLM is instructed to say so clearly.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "How is the RAGAS evaluation dataset structured?",
+    "ground_truth": "The eval dataset lives at eval/dataset.json as a list of objects with question and ground_truth fields. Each run produces SingleTurnSample records containing the user input, the system's generated response, the retrieved contexts, and the reference answer, which RAGAS scores against the four metrics.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "What happens to unsupported file formats when ingesting a directory?",
+    "ground_truth": "Unsupported file formats are silently skipped when ingesting a directory.",
+    "source_doc": "ingestion.md",
+    "type": "factual"
+  },
+  {
+    "question": "Where are eval results saved after running make eval?",
+    "ground_truth": "Results are saved to eval/results/<timestamp>.json, with per-row scores and the aggregate summary.",
+    "source_doc": "evaluation.md",
+    "type": "factual"
+  },
+  {
+    "question": "How does the choice of the same embedding model at ingestion and query time affect retrieval correctness?",
+    "ground_truth": "Using the same all-MiniLM-L6-v2 model and the same MD5-hashed term frequency approach at both ingestion and query time ensures that the vector spaces align correctly. If different models were used, the dense vectors for queries and documents would be in different spaces and cosine similarity scores would be meaningless.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "Why is cross-encoder reranking necessary after hybrid retrieval, and what problem does it solve?",
+    "ground_truth": "Hybrid retrieval with RRF returns up to 20 candidates efficiently, but the ranking is based on approximate scores from bi-encoders and BM25. Cross-encoder reranking then rescores each query-document pair by processing them together, enabling full attention and producing more accurate relevance scores. This two-stage approach balances recall at the retrieval step with precision at the reranking step, filtering noise before the LLM sees the context.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the ingestion pipeline's chunking strategy affect retrieval quality?",
+    "ground_truth": "The chunking strategy determines the granularity and semantic coherence of stored passages. Markdown files use MarkdownTextSplitter (splits on headers and code fences before character boundaries) to preserve semantic structure; other files use RecursiveCharacterTextSplitter. Chunk overlap (default 50 chars) ensures content near boundaries appears in adjacent chunks, improving recall for queries that span chunk edges. Smaller, well-structured chunks improve context precision; too-small chunks can fragment answers and hurt context recall.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "What is the relationship between RETRIEVAL_TOP_K and RERANKER_TOP_K in the query pipeline?",
+    "ground_truth": "RETRIEVAL_TOP_K (default 20) is the number of candidates each retrieval method (dense and sparse) fetches before RRF fusion. After fusion, reranking receives this merged set. RERANKER_TOP_K is the smaller number of top chunks (default from config) passed to the LLM after reranking. The two-stage design uses a large candidate set for high recall then narrows it for high precision before generation.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the BM25 sparse vector at query time relate to the sparse vector computed at ingestion time?",
+    "ground_truth": "At both ingestion and query time, the same tokenisation process is used: lowercase and split on non-alphanumeric characters, count term frequencies, and map to integer indices via a stable MD5 hash. This ensures that the same token maps to the same index in both the stored sparse vectors and the query sparse vector. Qdrant then applies IDF weighting at query time via the Modifier.IDF setting on the sparse vector field.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the system handle a query when no documents have been indexed?",
+    "ground_truth": "When no documents have been ingested, the retrieval step returns no points. The query pipeline detects this and returns the answer 'No documents have been indexed yet. Please ingest documents first.' with an empty sources list, without calling the LLM at all.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the ingestion pipeline ensure consistency between dense and sparse vector computations at query time?",
+    "ground_truth": "The ingestion pipeline uses the all-MiniLM-L6-v2 model for dense embeddings and MD5-hashed term frequency counts for sparse vectors. The query pipeline uses the exact same model and hashing scheme. Using the same models and hashing scheme at both ingestion and query time ensures the vector spaces align correctly, as documented in the query pipeline.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the system generate cited answers, and what information must be preserved from retrieval through to generation?",
+    "ground_truth": "After reranking, the top-k chunks are assembled into a numbered context block with their source paths. The system prompt instructs the LLM to cite passages inline as [1], [2], etc. The response includes an answer with inline citations and a sources list containing index, source path, chunk_index, score, and text for each passage. Source metadata (file path, chunk index) must be carried from the Qdrant payload through the retrieval, reranking, and generation stages to enable accurate citation.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "What happens when the RAGAS context recall score is low — how should it be diagnosed?",
+    "ground_truth": "When context recall is low, you should check per-row scores in the output JSON. A global recall of 0.65 often turns out to be two or three questions scoring 0 because the reference answer references information that is not in the corpus at all. Fixing the dataset (or adding the missing documentation) is higher-leverage than tuning retrieval_top_k. Low recall can reflect either corpus coverage gaps or retrieval failures.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does chunk overlap affect recall for queries that span chunk boundaries?",
+    "ground_truth": "Chunk overlap (default 50 characters) ensures that content near chunk boundaries appears in adjacent chunks. This means that a passage split across a boundary will be partially present in both chunks, improving recall for queries whose answer spans what would otherwise be a hard boundary. If overlap were zero, a query answer split exactly at a boundary might not appear in any single retrieved chunk.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the system prompt relate to the faithfulness metric in RAGAS?",
+    "ground_truth": "The system prompt instructs the LLM to answer using only the provided context passages and to say so clearly if the context does not contain enough information. Faithfulness measures whether the generated answer makes any claim not supported by the retrieved context. A well-crafted system prompt that grounds the LLM in context should produce high faithfulness scores, since the model is constrained to cite only what is in the retrieved passages.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does increasing RETRIEVAL_TOP_K affect context recall and context precision in opposite ways?",
+    "ground_truth": "Increasing RETRIEVAL_TOP_K retrieves more candidates, giving the reranker more material to work with, which can improve context recall (more relevant chunks are available). However, it also introduces more noise into the candidate set, making it harder for the reranker to rank relevant chunks first, which can hurt context precision. The two-stage retrieval+reranking design attempts to balance these trade-offs.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "What is the end-to-end flow of a user query through all pipeline stages?",
+    "ground_truth": "A user query flows through: (1) embed query into dense and sparse vectors using all-MiniLM-L6-v2 and MD5 hashing; (2) hybrid retrieval via Qdrant's query_points with two prefetch vectors (dense cosine, sparse BM25) and server-side RRF fusion; (3) cross-encoder reranking of the top candidates with ms-marco-MiniLM-L-6-v2; (4) context assembly into a numbered block with source metadata; (5) LLM generation with GPT-4o-mini using a system prompt that enforces citation; (6) response returned with answer, sources list, query, and model.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the Docker deployment differ from local development in terms of configuration loading?",
+    "ground_truth": "In local development, the FastAPI CLI reads the [tool.fastapi] entry in pyproject.toml to locate the app, and pydantic-settings loads the .env file from the repo root. In the Docker runtime stage, the container CMD invokes uvicorn directly without the FastAPI CLI, and configuration must be provided via environment variables rather than a .env file, since pyproject.toml and .env are not part of the runtime image.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the ingestion pipeline's idempotency affect what happens when the same document is re-ingested?",
+    "ground_truth": "The ingestion pipeline deletes all existing chunks for the source files before re-ingesting them (delete_chunks_for_sources), then upserts the new chunks. This means re-ingesting is safe and will reflect any document changes. Chunk IDs are derived from text content and source path via SHA256, so unchanged chunks get the same ID and the upsert is effectively a no-op for them.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the all-MiniLM-L6-v2 model running fully offline affect the system's deployment requirements?",
+    "ground_truth": "Because all-MiniLM-L6-v2 runs entirely offline and requires no API key, the system can perform embedding (for both ingestion and query) without any external service dependency beyond OpenAI for LLM generation. This makes the embedding step free, fast, and suitable for air-gapped environments. The model can be swapped for an OpenAI embedding model via the EMBEDDING_MODEL environment variable if desired.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "What is the difference between dense search and sparse BM25 search in hybrid retrieval?",
+    "ground_truth": "Dense search uses 384-dimensional embedding vectors and cosine similarity to find semantically similar passages — it handles conceptual queries like 'how do embeddings work?' even when exact keywords are absent. Sparse BM25 search uses term frequency vectors and IDF weighting to find passages with exact keyword matches — it handles queries containing specific technical terminology like 'what is the Modifier.IDF parameter?'. Hybrid retrieval uses both in parallel and merges results with RRF to benefit from both recall types.",
+    "source_doc": "multiple",
+    "type": "comparative"
+  },
+  {
+    "question": "What is the difference between a cross-encoder and a bi-encoder, and why is a cross-encoder used for reranking?",
+    "ground_truth": "A bi-encoder (like the all-MiniLM-L6-v2 retrieval model) encodes query and document independently into separate vectors, enabling fast pre-computation but losing the ability to model query-document interactions directly. A cross-encoder processes the query and document together in a single forward pass, enabling full attention between them for more accurate relevance scores at higher computational cost. Docquery uses the bi-encoder at retrieval time (fast, scales to many candidates) and the cross-encoder at reranking time (slow but precise, applied only to the top-k candidates).",
+    "source_doc": "multiple",
+    "type": "comparative"
+  },
+  {
+    "question": "How does faithfulness differ from answer relevancy as RAGAS metrics?",
+    "ground_truth": "Faithfulness measures whether the answer is grounded in the retrieved context — it checks whether every claim is traceable to a retrieved passage (hallucination detection). Answer relevancy measures whether the answer addresses the question that was asked — it checks if the answer is on-topic regardless of whether it is grounded. An answer can be faithful (all claims supported by context) but irrelevant (answering a different question), or relevant but unfaithful (hallucinating facts not in context).",
+    "source_doc": "evaluation.md",
+    "type": "comparative"
+  },
+  {
+    "question": "How does context precision differ from context recall as RAGAS metrics?",
+    "ground_truth": "Context precision measures whether the most relevant chunks are ranked first in the retrieved set — it is about ranking quality, not completeness. Context recall measures whether all the information needed to answer the question was retrieved at all — it is about coverage. High precision with low recall means the top-ranked chunks are relevant but the retriever missed important passages. High recall with low precision means all relevant passages were retrieved but buried under noise.",
+    "source_doc": "evaluation.md",
+    "type": "comparative"
+  },
+  {
+    "question": "What is the difference between the Markdown chunking strategy and the RecursiveCharacterTextSplitter strategy?",
+    "ground_truth": "The Markdown strategy uses MarkdownTextSplitter, which splits on headers (#, ##, ###) and code fences before falling back to paragraph and character boundaries. This preserves semantic structure and produces chunks that carry the full header breadcrumb as section metadata. The RecursiveCharacterTextSplitter strategy tries paragraph, newline, then character boundaries without any header-awareness, and produces chunks without section metadata. Markdown chunking is used for .md files; recursive is the fallback for all other file types.",
+    "source_doc": "multiple",
+    "type": "comparative"
+  },
+  {
+    "question": "What is the difference between `make serve` and `make serve-prod`?",
+    "ground_truth": "Both commands start the FastAPI server, but `make serve` runs `uv run fastapi dev` which enables auto-reload on code changes (development mode), while `make serve-prod` runs `uv run fastapi run` which disables auto-reload and is intended for production-like local use.",
+    "source_doc": "api_reference.md",
+    "type": "comparative"
+  },
+  {
+    "question": "What is the difference between RETRIEVAL_TOP_K and RERANKER_TOP_K, and why are they typically different?",
+    "ground_truth": "RETRIEVAL_TOP_K is the number of candidates each retrieval method fetches from Qdrant before RRF fusion — a larger set ensures high recall. RERANKER_TOP_K is the smaller number of top results passed to the LLM after reranking — a smaller set ensures high precision and reduces LLM context size. They are intentionally different because retrieval optimises for recall (cast wide) while reranking optimises for precision (narrow down).",
+    "source_doc": "query_pipeline.md",
+    "type": "comparative"
+  },
+  {
+    "question": "How does the /query endpoint differ from the /ingest endpoint in terms of latency?",
+    "ground_truth": "The /query endpoint involves real-time embedding, hybrid retrieval, cross-encoder reranking, and LLM generation, resulting in a response time of approximately 2-5 seconds. The /ingest endpoint processes documents asynchronously and returns a 202 Accepted response immediately with a task_id, so the actual ingestion work happens in the background. The client can then poll the /ingest/{task_id} endpoint to check status.",
+    "source_doc": "api_reference.md",
+    "type": "comparative"
+  },
+  {
+    "question": "What is the difference between the dense vector and sparse vector stored for each chunk in Qdrant?",
+    "ground_truth": "The dense vector is a 384-dimensional floating-point vector produced by all-MiniLM-L6-v2, stored under the key 'dense' and used for cosine similarity search. The sparse vector is a BM25-style vector of term frequency indices and values produced by MD5-hashed tokenisation, stored under the key 'sparse' and used for keyword search. Qdrant applies IDF weighting to the sparse vector at query time via the Modifier.IDF setting.",
+    "source_doc": "multiple",
+    "type": "comparative"
+  },
+  {
+    "question": "How does Qdrant differ from ChromaDB in the context of hybrid search?",
+    "ground_truth": "Qdrant has hybrid search (dense + sparse vectors) built in and performs server-side Reciprocal Rank Fusion (RRF) to merge results. ChromaDB does not have native hybrid search, so a separate BM25 indexing service would be needed to replicate the same capability. This is why Qdrant was chosen over ChromaDB for docquery.",
+    "source_doc": "architecture.md",
+    "type": "comparative"
+  },
+  {
+    "question": "What is the difference between a single RAGAS eval run and a multi-run averaged baseline?",
+    "ground_truth": "A single eval run produces one set of aggregate scores that may be affected by LLM judge variance (±0.02-0.05). Three of the four RAGAS metrics use an LLM judge, so results can differ between runs on identical data. A multi-run baseline (3-5 runs) reports the mean and standard deviation, giving a more statistically reliable estimate of system performance and making it possible to detect genuine improvements from noise.",
+    "source_doc": "evaluation.md",
+    "type": "comparative"
+  },
+  {
+    "question": "How does the Markdown chunking strategy handle documents that are not in Markdown format?",
+    "ground_truth": "Documents that are not in Markdown format fall back to the RecursiveCharacterTextSplitter, which splits on paragraph, newline, then character boundaries without any header awareness. This produces plain text chunks without section metadata. The Markdown-specific path is only activated when the file_type is .md.",
+    "source_doc": "ingestion.md",
+    "type": "comparative"
+  },
+  {
+    "question": "How does the context expansion step differ from the initial retrieval step?",
+    "ground_truth": "The initial retrieval step uses hybrid search (dense + sparse with RRF) to find the most semantically and keyword-relevant chunks from the entire collection. The context expansion step (after reranking) fetches neighbor chunks adjacent to the top-ranked results, capturing surrounding context that may be needed for a complete answer. Retrieval is query-driven; expansion is position-driven based on chunk_index.",
+    "source_doc": "multiple",
+    "type": "comparative"
+  },
+  {
+    "question": "How does the per-row score in RAGAS results differ from the aggregate score?",
+    "ground_truth": "The per-row score is the RAGAS metric value for a single question-answer pair in the eval dataset. The aggregate score is the mean of all per-row scores across the dataset. Per-row scores are useful for diagnosing which specific questions are failing; aggregate scores give a high-level summary of overall system quality. A global recall of 0.65 may mask a few questions scoring 0 that pull the average down significantly.",
+    "source_doc": "evaluation.md",
+    "type": "comparative"
+  },
+  {
+    "question": "What is the monthly cost of running docquery in production on AWS?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "Does docquery support streaming responses to the client?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "How can docquery be integrated with Slack to answer questions from a workspace?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "What is the maximum number of documents that can be ingested into docquery?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "Does docquery support multi-tenant isolation for different organizations?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "What authentication mechanism should be used to secure the /query endpoint in production?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "How can docquery be deployed to Google Cloud Run?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "Does docquery support fine-tuning the embedding model on domain-specific text?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "How does docquery handle rate limiting to prevent abuse of the query endpoint?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "Does docquery store conversation history across multiple user queries?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "What is the recommended Kubernetes configuration for deploying docquery at scale?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "Can docquery ingest and query documents stored in Amazon S3?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "Does docquery implement semantic caching to avoid re-calling the LLM for repeated queries?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "What GDPR compliance measures does docquery implement for handling user queries?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "Does docquery support multilingual document ingestion and cross-language querying?",
+    "ground_truth": "This information is not covered in the available documentation.",
+    "source_doc": "N/A",
+    "type": "unanswerable"
+  },
+  {
+    "question": "How does the reranker's score threshold work, and what happens to candidates below it?",
+    "ground_truth": "The cross-encoder reranker rescores each candidate with a relevance score. Only candidates whose score exceeds the reranker_score_threshold are kept. Candidates below the threshold are dropped before context assembly and LLM generation. This prevents low-quality passages from polluting the context sent to the LLM.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "Why does the system use Reciprocal Rank Fusion instead of simple score combination?",
+    "ground_truth": "RRF assigns each document a score based on its rank in each result list (score = Σ 1/(k+rank)), not its raw similarity score. Raw similarity scores from dense and sparse vectors are on different scales and cannot be directly combined. RRF is rank-based, making it robust to scale differences between dense cosine scores and BM25 scores. Qdrant applies RRF server-side, requiring no client-side normalisation or tuning.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the RAGAS answer relevancy metric differ from faithfulness in detecting generation failures?",
+    "ground_truth": "Faithfulness detects hallucination — claims in the answer not supported by retrieved context. Answer relevancy detects topic drift — the answer is about something other than what was asked. A faithfulness failure means the LLM made up facts; a relevancy failure means the LLM answered a different question. Both are generation-side failures, but they diagnose different problems. Low faithfulness suggests a context-grounding issue; low relevancy suggests the LLM is ignoring the question.",
+    "source_doc": "evaluation.md",
+    "type": "multi_hop"
+  },
+  {
+    "question": "What is the role of pydantic-settings in docquery's configuration, and how does it simplify testing?",
+    "ground_truth": "pydantic-settings provides the Settings class backed by a BaseSettings that reads from environment variables and a .env file with priority ordering. The get_settings() factory is lru_cache-decorated so the same instance is reused across the process. FastAPI routes depend on it via Depends(get_settings), which makes tests trivial: override the dependency to swap settings without modifying global state or reloading the app.",
+    "source_doc": "configuration.md",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the ingestion pipeline handle a re-run over a directory where some files have been removed?",
+    "ground_truth": "After ingesting all current files, the pipeline calls delete_orphan_chunks with the current set of sources. It scrolls through all Qdrant points with sources matching the directory prefix, identifies sources no longer in the directory (orphans), and deletes their chunks. This ensures the index stays in sync with the filesystem when files are removed.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "What is the role of the 'section' field in the chunk payload, and how is it produced?",
+    "ground_truth": "The section field is a breadcrumb string built from the H1/H2/H3 header hierarchy above the chunk (e.g. 'Deploy > Step 3 > 3.1 Sub'). It is produced by the Markdown chunking strategy: MarkdownHeaderTextSplitter extracts header-level metadata, which is then joined into a breadcrumb string. The section field is included in the numbered context block shown to the LLM, helping the model understand where in the document each passage comes from.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the ingestion pipeline ensure that chunk IDs remain stable across re-ingests?",
+    "ground_truth": "Chunk IDs are derived from a SHA256 hash of the chunk's text content concatenated with its source file path. Because the ID is computed from text and source only (not from metadata like chunk_index or timestamps), the same chunk text from the same file always produces the same ID. This means upsert operations are idempotent for unchanged content, and adding metadata fields to the payload does not invalidate existing IDs.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does context expansion fetch neighbor chunks, and what risk does it introduce for RBAC?",
+    "ground_truth": "Context expansion fetches chunks adjacent to each reranked result based on chunk_index, using a configurable window (e.g. one chunk on each side). If a clearance filter is applied at retrieval time but not propagated to the expansion step, neighbors with higher clearance levels could leak into the context. To prevent this, the clearance filter must be applied consistently to both the initial retrieval and the context expansion queries.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the warm-up of embedding and reranker models at FastAPI app startup affect query latency?",
+    "ground_truth": "The sentence-transformers and cross-encoder models are loaded once into memory during the FastAPI app's lifespan startup event. Without warm-up, the first query would trigger model loading (which can take several seconds) before performing retrieval. Pre-loading ensures all subsequent queries face only inference latency, not model loading latency, making response times consistent from the first request.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "What is the purpose of the context_expansion_window setting, and how does it affect what the LLM receives?",
+    "ground_truth": "The context_expansion_window setting controls how many adjacent chunks are fetched on each side of each reranked result. For example, a window of 1 means one chunk before and one after each top result. This enriches the LLM's context by including surrounding text that may be needed to give complete answers to questions that span chunk boundaries. However, it increases the number of tokens sent to the LLM and may dilute precision if neighbor chunks are irrelevant.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the PDF loader in the ingestion pipeline handle multi-page documents?",
+    "ground_truth": "The PDF loader uses pypdf to extract text from all pages of the document. The resulting text is treated as a single document and then passed to the chunking step, which applies the RecursiveCharacterTextSplitter (since PDFs are not Markdown). The page metadata (number of pages extracted) is stored in the document metadata.",
+    "source_doc": "ingestion.md",
+    "type": "multi_hop"
+  },
+  {
+    "question": "What is the relationship between the LLM_MAX_TOKENS setting and the quality of the generated answer?",
+    "ground_truth": "LLM_MAX_TOKENS limits the maximum number of tokens the LLM can generate in its response. If the setting is too low, the answer may be truncated before all citations are included or before the question is fully answered. If it is too high, it increases cost. The default value balances answer completeness with cost for typical documentation queries.",
+    "source_doc": "multiple",
+    "type": "multi_hop"
+  },
+  {
+    "question": "How does the use of IDF weighting via Modifier.IDF in Qdrant differ from pre-computing IDF at ingestion time?",
+    "ground_truth": "With Modifier.IDF, only raw term frequencies are stored at ingestion time. Qdrant computes IDF scores dynamically at query time based on the actual term distribution across all stored documents. This means IDF scores automatically reflect the current state of the collection as documents are added or removed. Pre-computing IDF at ingestion time would fix the scores at the time of ingestion, requiring re-ingestion to update them when the corpus changes.",
+    "source_doc": "multiple",
+    "type": "comparative"
+  },
+  {
+    "question": "What is the tradeoff between using all-MiniLM-L6-v2 versus OpenAI embeddings for the dense vector?",
+    "ground_truth": "all-MiniLM-L6-v2 runs entirely offline, requires no API key, and is fast enough for real-time query embedding. It is free and suitable for development and air-gapped deployments. OpenAI embeddings may produce higher-quality vectors for complex semantic queries but incur API costs, require internet access, and introduce a dependency on an external service. The model is swappable via the EMBEDDING_MODEL environment variable.",
+    "source_doc": "architecture.md",
+    "type": "comparative"
+  }
+]

@@ -1,4 +1,4 @@
-.PHONY: serve serve-prod ingest eval test lint format
+.PHONY: serve serve-prod ingest eval eval-v2 generate-dataset test lint format
 
 serve:
 	uv run fastapi dev
@@ -11,6 +11,12 @@ ingest:
 
 eval:
 	uv run python eval/run_eval.py
+
+eval-v2:
+	uv run python eval/run_eval.py --dataset eval/dataset_v2.json
+
+generate-dataset:
+	uv run python eval/scripts/generate_v2.py
 
 test:
 	uv run pytest
