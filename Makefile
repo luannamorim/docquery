@@ -1,4 +1,4 @@
-.PHONY: serve serve-prod ingest eval eval-v2 generate-dataset compare-chunkers test lint format
+.PHONY: serve serve-prod ingest eval eval-v2 generate-dataset compare-chunkers security-suite test lint format
 
 serve:
 	uv run fastapi dev
@@ -20,6 +20,9 @@ generate-dataset:
 
 compare-chunkers:
 	uv run python eval/scripts/compare_chunkers.py
+
+security-suite:
+	uv run python eval/security/injection_suite.py
 
 test:
 	uv run pytest

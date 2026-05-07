@@ -1,0 +1,45 @@
+name: Security Injection Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      fail_threshold:
+        description: "Minimum block_rate to pass (0.0–1.0)"
+        default: "0.85"
+        required: false
+
+jobs:
+  injection-suite:
+    runs-on: ubuntu-latest
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Sync dependencies (prod + eval)
+        run: uv sync --extra eval
+
+      - name: Ingest sample docs
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: uv run python -m docquery.ingest.pipeline docs/sample/
+
+      - name: Run injection suite
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: uv run python eval/security/injection_suite.py
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: injection-results
+          path: eval/results/security/injection_v1.json

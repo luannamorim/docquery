@@ -12,6 +12,7 @@ from docquery.api.schemas import (
     QueryRequest,
     QueryResponse,
 )
+from docquery.api.guard import check_input
 from docquery.config import Settings, get_settings
 from docquery.generate.rag import query_pipeline
 from docquery.ingest.pipeline import ingest_path
@@ -56,6 +57,9 @@ def query(
     settings: SettingsDep,
     user_clearance: ClearanceDep,
 ) -> QueryResponse:
+    blocked, reason = check_input(request.query)
+    if blocked:
+        raise HTTPException(status_code=400, detail=f"Query rejected: {reason}")
     result = query_pipeline(request.query, settings=settings, user_clearance=user_clearance)
     return QueryResponse(**result)
 
