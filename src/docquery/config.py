@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,6 +28,10 @@ class Settings(BaseSettings):
     # Chunking
     chunk_size: int = 1024
     chunk_overlap: int = 100
+    chunker_strategy: Literal["markdown", "recursive", "semantic"] = "markdown"
+    # SemanticChunker params (only used when chunker_strategy="semantic")
+    semantic_breakpoint_threshold_type: str = "percentile"
+    semantic_breakpoint_threshold_amount: float = 95.0
 
     # Heading promotion for non-markdown procedural docs.
     # Patterns that match at line start are rewritten as "## ..." so the

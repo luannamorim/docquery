@@ -24,6 +24,12 @@ eval = [
     "ragas",
     "langchain-openai",
 ]
+chunking = [
+    "langchain-experimental",
+]
+security = [
+    "deepeval",
+]
 
 [build-system]
 requires = ["hatchling"]
