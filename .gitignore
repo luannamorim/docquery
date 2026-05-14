@@ -210,3 +210,8 @@ __marimo__/
 # Ad-hoc `make eval` output lands here and should stay local.
 eval/results/*.json
 !eval/results/baseline.json
+
+# Claude Code agent runtime memory — written by subagents at run time, goes
+# stale fast as the code evolves. The agent definitions themselves live in
+# .claude/agents/ and ARE tracked.
+.claude/agent-memory/
