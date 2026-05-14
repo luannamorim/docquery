@@ -97,7 +97,15 @@ def query_pipeline(
     Only chunks with clearance_level <= user_clearance are retrieved.
     """
     settings = settings or get_settings()
-    qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    qdrant = QdrantClient(
+        host=settings.qdrant_host,
+        port=settings.qdrant_port,
+        api_key=(
+            settings.qdrant_api_key.get_secret_value()
+            if settings.qdrant_api_key
+            else None
+        ),
+    )
     openai_client = OpenAI(
         api_key=settings.openai_api_key.get_secret_value() or None,
         timeout=settings.openai_timeout_seconds,

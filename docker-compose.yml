@@ -7,6 +7,7 @@ services:
       - .env
     environment:
       - QDRANT_HOST=qdrant
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
     volumes:
       - ./docs:/app/docs
     depends_on:
@@ -16,9 +17,13 @@ services:
 
   qdrant:
     image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
-      - "6334:6334"
+    # No 'ports' — Qdrant stays on the internal docker network only. Expose
+    # the ports for cross-container traffic without publishing to the host.
+    expose:
+      - "6333"
+      - "6334"
+    environment:
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:

@@ -189,7 +189,15 @@ def _apply_clearance_policy(docs: list, settings: Settings) -> None:
 def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     """Ingest a file or directory into Qdrant. Returns chunk and deleted counts."""
     settings = settings or get_settings()
-    client = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    client = QdrantClient(
+        host=settings.qdrant_host,
+        port=settings.qdrant_port,
+        api_key=(
+            settings.qdrant_api_key.get_secret_value()
+            if settings.qdrant_api_key
+            else None
+        ),
+    )
     ensure_collection(client, settings)
 
     if path.is_dir():
