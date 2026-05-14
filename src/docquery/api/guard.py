@@ -141,3 +141,32 @@ def _has_disallowed_control_chars(text: str) -> bool:
         if unicodedata.category(ch) == "Cf" and ch not in _UNICODE_CF_ALLOW:
             return True
     return False
+
+
+# Subset of patterns applied to retrieved chunks. Role-injection sentinels and
+# explicit instruction overrides in *indexed content* are the strongest
+# signal of indirect prompt injection (LLM01 — see OWASP LLM Top 10). We do
+# not include _JAILBREAK or the broad PROMPT_LEAK patterns because docs may
+# legitimately contain examples about prompt injection.
+_CONTEXT_PATTERNS = (
+    ("instruction_override", _INSTRUCTION_OVERRIDE),
+    ("role_injection", _ROLE_INJECTION),
+)
+
+
+def check_context(contexts: list[dict]) -> list[tuple[str, str]]:
+    """Scan retrieved chunks for indirect-injection signals.
+
+    Returns a list of (source, reason) tuples for chunks whose text matches an
+    injection pattern. Callers should LOG these (defence in depth) rather
+    than block — indexed docs may contain legitimate examples about prompt
+    attacks. The hardened system prompt is the final line of defence.
+    """
+    findings: list[tuple[str, str]] = []
+    for ctx in contexts:
+        text = unicodedata.normalize("NFKC", str(ctx.get("text", "")))
+        for reason, pattern in _CONTEXT_PATTERNS:
+            if pattern.search(text):
+                findings.append((str(ctx.get("source", "")), reason))
+                break
+    return findings

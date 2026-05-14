@@ -3,6 +3,7 @@ import logging
 from openai import OpenAI
 from qdrant_client import QdrantClient
 
+from docquery.api.guard import check_context
 from docquery.config import Settings, get_settings
 from docquery.retrieve.expand import expand_contexts
 from docquery.retrieve.hybrid import retrieve
@@ -103,6 +104,12 @@ def query_pipeline(
     contexts = expand_contexts(
         contexts, qdrant, settings, user_clearance=user_clearance
     )
+    for source, reason in check_context(contexts):
+        logger.warning(
+            "Possible indirect injection in retrieved chunk: source=%s reason=%s",
+            source,
+            reason,
+        )
     logger.info(
         "Query: %r — retrieved %d points, reranked to %d",
         query,
