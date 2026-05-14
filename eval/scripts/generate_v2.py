@@ -127,8 +127,13 @@ def _call_llm(client: OpenAI, model: str, prompt: str) -> list[dict]:
         temperature=0.7,
         max_tokens=4096,
     )
-    raw = response.choices[0].message.content or "[]"
-    raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+    raw = (response.choices[0].message.content or "[]").strip()
+    for prefix in ("```json", "```"):
+        if raw.startswith(prefix):
+            raw = raw[len(prefix):].lstrip()
+            break
+    if raw.endswith("```"):
+        raw = raw[:-3].rstrip()
     try:
         items = json.loads(raw)
         if not isinstance(items, list):
