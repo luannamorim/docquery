@@ -1,3 +1,4 @@
+import logging
 import uuid
 from pathlib import Path
 from typing import Annotated
@@ -17,19 +18,36 @@ from docquery.config import Settings, get_settings
 from docquery.generate.rag import query_pipeline
 from docquery.ingest.pipeline import ingest_path
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-def get_user_clearance(x_user_clearance: Annotated[int, Header()] = 0) -> int:
+def get_user_clearance(
+    x_user_clearance: Annotated[int, Header()] = 0,
+    settings: SettingsDep = None,  # type: ignore[assignment]
+) -> int:
     """Read clearance level from the X-User-Clearance HTTP header (default 0).
 
     In a real system this would come from a verified JWT claim. Here it is an
     unauthenticated header to demonstrate RBAC filtering without adding an auth
-    dependency outside the sprint scope.
+    dependency outside the sprint scope. Bound-checked against
+    settings.max_clearance_level so callers cannot read above the configured
+    ceiling.
     """
-    return max(0, x_user_clearance)
+    if not (0 <= x_user_clearance <= settings.max_clearance_level):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"X-User-Clearance must be between 0 and "
+                f"{settings.max_clearance_level}"
+            ),
+        )
+    if x_user_clearance > 0:
+        logger.info("Query authorized with clearance=%d", x_user_clearance)
+    return x_user_clearance
 
 
 ClearanceDep = Annotated[int, Depends(get_user_clearance)]

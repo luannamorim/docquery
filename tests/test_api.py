@@ -136,6 +136,25 @@ def test_ingest_empty_body() -> None:
     assert response.status_code == 422
 
 
+def test_query_clearance_above_max_rejected() -> None:
+    response = client.post(
+        "/query",
+        json={"query": "anything"},
+        headers={"X-User-Clearance": "999"},
+    )
+    assert response.status_code == 400
+    assert "X-User-Clearance" in response.json()["detail"]
+
+
+def test_query_clearance_negative_rejected() -> None:
+    response = client.post(
+        "/query",
+        json={"query": "anything"},
+        headers={"X-User-Clearance": "-1"},
+    )
+    assert response.status_code == 400
+
+
 def test_openapi_available() -> None:
     response = client.get("/openapi.json")
     assert response.status_code == 200
