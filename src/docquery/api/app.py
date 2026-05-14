@@ -4,6 +4,7 @@ from importlib.metadata import version
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from docquery.api.ratelimit import BodySizeMiddleware, RateLimitMiddleware
 from docquery.api.routes import router
 from docquery.config import get_settings
 from docquery.retrieve.embedder import _get_model
@@ -36,4 +37,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="docquery", version=version("docquery"), lifespan=lifespan)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(BodySizeMiddleware)
 app.include_router(router)

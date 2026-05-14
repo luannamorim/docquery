@@ -155,6 +155,58 @@ def test_query_clearance_negative_rejected() -> None:
     assert response.status_code == 400
 
 
+def test_body_size_cap_rejects_oversized_request(monkeypatch) -> None:
+    from docquery.api import ratelimit
+
+    monkeypatch.setattr(
+        ratelimit, "get_settings", lambda: Settings(request_max_body_bytes=100)
+    )
+    large = "x" * 200
+    response = client.post("/query", json={"query": large})
+    assert response.status_code == 413
+
+
+def _walk_middleware_stack():
+    """Yield each instance in the built ASGI middleware stack."""
+    node = app.middleware_stack
+    while node is not None:
+        yield node
+        node = getattr(node, "app", None)
+
+
+def _reset_rate_limit_state() -> None:
+    """Build the stack (via a single request) then clear the rate-limit deques."""
+    from docquery.api import ratelimit
+
+    client.get("/health")
+    for mw in _walk_middleware_stack():
+        if isinstance(mw, ratelimit.RateLimitMiddleware):
+            mw._hits.clear()
+
+
+def test_rate_limit_returns_429_when_exceeded(monkeypatch) -> None:
+    from docquery.api import ratelimit
+
+    monkeypatch.setattr(
+        ratelimit, "get_settings", lambda: Settings(rate_limit_requests_per_minute=2)
+    )
+    _reset_rate_limit_state()
+    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/openapi.json").status_code == 429
+
+
+def test_health_endpoint_exempt_from_rate_limit(monkeypatch) -> None:
+    from docquery.api import ratelimit
+
+    monkeypatch.setattr(
+        ratelimit, "get_settings", lambda: Settings(rate_limit_requests_per_minute=1)
+    )
+    _reset_rate_limit_state()
+    for _ in range(5):
+        assert client.get("/health").status_code == 200
+
+
 def test_security_headers_applied() -> None:
     response = client.get("/health")
     assert response.headers.get("X-Content-Type-Options") == "nosniff"
