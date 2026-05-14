@@ -155,6 +155,13 @@ def test_query_clearance_negative_rejected() -> None:
     assert response.status_code == 400
 
 
+def test_security_headers_applied() -> None:
+    response = client.get("/health")
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+    assert response.headers.get("Cache-Control") == "no-store"
+
+
 def test_openapi_available() -> None:
     response = client.get("/openapi.json")
     assert response.status_code == 200
