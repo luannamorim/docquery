@@ -60,8 +60,9 @@ def _run_ingest(task_id: str, path: Path, settings: Settings) -> None:
     try:
         result = ingest_path(path, settings=settings)
         _tasks[task_id].update(status="done", **result)
-    except Exception as exc:
-        _tasks[task_id].update(status="error", error=str(exc))
+    except Exception:
+        logger.exception("Ingest task %s failed", task_id)
+        _tasks[task_id].update(status="error", error="ingestion failed")
 
 
 @router.get("/health", tags=["system"])
