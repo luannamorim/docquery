@@ -10,40 +10,68 @@ instructions) is the second layer. Neither layer alone is sufficient.
 
 Coverage (OWASP LLM Top 10 categories):
   LLM01 - Prompt Injection: instruction-override and role-injection patterns
+          (English + PT-BR/ES) and indirect injection via retrieved chunks
+          (see check_context below)
   LLM06 - Sensitive Information Disclosure: prompt/instruction leak attempts
-  Structural: oversized inputs and Unicode control character attacks
+  Structural: oversized inputs, Unicode control character attacks, NFKC
+              homoglyph normalization
 """
+
+from __future__ import annotations
 
 import re
 import unicodedata
+
+from docquery.config import Settings, get_settings
 
 # ---------------------------------------------------------------------------
 # Pattern definitions
 # ---------------------------------------------------------------------------
 
+# Verbs that attempt to override the system instructions, EN + PT-BR + ES.
+_OVERRIDE_VERBS = (
+    r"ignore|disregard|forget|override|bypass|skip"
+    r"|ignor[ea]r?|esque[çc][ae]r?|desconsider[ea]r?|descart[ea]r?|sobrescre[vt]e?r?"
+    r"|olvid[ae]r?|olvida"
+)
+# Targets of override, EN + PT-BR + ES.
+_OVERRIDE_TARGETS = (
+    r"instruction|instructions|prompt|prompts|context|rule|rules|constraint|constraints|guideline|guidelines"
+    r"|instru[çc][ãa]o|instru[çc][õo]es|regras?|restri[çc][õo]es?|diretrizes?|contexto"
+    r"|instrucci[oó]n|instrucciones|reglas?|restricciones?"
+)
+
 _INSTRUCTION_OVERRIDE = re.compile(
-    r"(ignore|disregard|forget|override|bypass|skip)"
-    r"(?:\s+\w+){0,3}\s+"
-    r"(instruction|instructions|prompt|prompts|context|rule|rules|constraint|constraints|guideline|guidelines)",
-    re.IGNORECASE,
+    rf"({_OVERRIDE_VERBS})(?:\s+\w+){{0,3}}\s+({_OVERRIDE_TARGETS})",
+    re.IGNORECASE | re.UNICODE,
 )
 
 _ROLE_INJECTION = re.compile(
     r"("
-    r"\b(system|assistant|user)\s*:\s*"  # "system: do this"
-    r"|<\|(?:im_start|im_end|endoftext)\|>"  # OpenAI token sentinels
-    r"|###\s*(system|instruction|prompt)"  # markdown-style fake headers
-    r"|<sys>|</sys>"  # XML-style injection
+    r"\b(system|assistant|user|sistema|usu[áa]rio)\s*:\s*"
+    r"|<\|(?:im_start|im_end|endoftext)\|>"
+    r"|###\s*(system|instruction|prompt|sistema|instru[çc][ãa]o)"
+    r"|<sys>|</sys>"
     r")",
-    re.IGNORECASE,
+    re.IGNORECASE | re.UNICODE,
 )
 
+# Tightened: only match leak attempts that name a *qualified* prompt-like
+# target (system/hidden/initial/original/full/base). The bare word
+# "instructions" was previously matched, causing false positives on legitimate
+# questions like "What are the instructions to configure X?".
 _PROMPT_LEAK = re.compile(
-    r"(reveal|print|output|show|repeat|display|tell me|what is|what are)"
-    r"(?:\s+\w+){0,2}\s+"
-    r"(system\s+prompt|system\s+message|instructions?|hidden\s+prompt|initial\s+prompt|"
-    r"initial\s+instructions?|original\s+prompt|full\s+prompt|base\s+prompt)",
-    re.IGNORECASE,
+    r"(reveal|print|output|show|repeat|display|expose|leak"
+    r"|revel[ae]r?|exiba|mostre|imprim[ae]|repit[ae]"
+    r"|tell\s+me|what\s+is|what\s+are"
+    r"|me\s+diga|qual\s+(é|e|s[ãa]o)|quais\s+s[ãa]o)"
+    r"(?:\s+\w+){0,3}\s+"
+    r"(system|hidden|initial|original|full|base"
+    r"|sistema|oculto|inicial|original|completo|base)"
+    r"\s+"
+    r"(prompt|prompts|instruction|instructions|message"
+    r"|instru[çc][ãa]o|instru[çc][õo]es|mensagem)",
+    re.IGNORECASE | re.UNICODE,
 )
 
 _JAILBREAK = re.compile(
@@ -51,52 +79,65 @@ _JAILBREAK = re.compile(
     r"pretend\s+(you\s+are|to\s+be|you're|your\s+are)\s+(a|an)?\s*(different|evil|jailbreak|unrestricted|unfiltered|DAN|GPT)"
     r"|you\s+are\s+now\s+(DAN|evil\s+AI|unfiltered|jailbreak)"
     r"|act\s+as\s+(if\s+)?(you\s+have\s+no\s+restrictions|DAN|an?\s+(unrestricted|unfiltered))"
+    r"|finja\s+que\s+(é|e)\s+(um|uma)"
+    r"|aja\s+como\s+(se|um|uma)"
     r")",
-    re.IGNORECASE,
+    re.IGNORECASE | re.UNICODE,
 )
 
-# Unicode control characters used in adversarial prompts:
-# - RLO (U+202E): right-to-left override, hides injected text
-# - Zero-width joiners/non-joiners used to split keywords past naive filters
-_UNICODE_ATTACK_CATEGORIES = frozenset({"Cf"})  # Unicode "Format" category
+# Unicode "Format" category (Cf) covers adversarial chars like RLO (U+202E)
+# but also a few legitimate joiners commonly seen in PT/EN text. Block Cf
+# except for the allowlist below.
+_UNICODE_CF_ALLOW = frozenset(
+    {
+        "‌",  # ZWNJ
+        "‍",  # ZWJ — used in emoji ZWJ sequences and some scripts
+        "‎",  # LRM
+        "‏",  # RLM
+        "﻿",  # BOM
+    }
+)
 
-_MAX_QUERY_LENGTH = 2000
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-def check_input(query: str) -> tuple[bool, str | None]:
+def check_input(query: str, settings: Settings | None = None) -> tuple[bool, str | None]:
     """Return (blocked, reason). blocked=True means the query was rejected.
 
-    Args:
-        query: The raw user query string from the /query endpoint.
-
-    Returns:
-        (False, None) if the query is safe to process.
-        (True, reason_string) if the query should be rejected with HTTP 400.
+    The query is NFKC-normalized before regex matching so homoglyph and
+    fullwidth-Latin attacks are flattened to the canonical form.
     """
-    if len(query) > _MAX_QUERY_LENGTH:
-        return True, f"Query exceeds maximum length of {_MAX_QUERY_LENGTH} characters"
+    settings = settings or get_settings()
+    max_len = settings.guard_max_query_length
 
-    if _has_unicode_control_chars(query):
+    normalized = unicodedata.normalize("NFKC", query)
+
+    if len(normalized) > max_len:
+        return True, f"Query exceeds maximum length of {max_len} characters"
+
+    if _has_disallowed_control_chars(normalized):
         return True, "Query contains disallowed Unicode control characters"
 
-    if _INSTRUCTION_OVERRIDE.search(query):
+    if _INSTRUCTION_OVERRIDE.search(normalized):
         return True, "Query contains instruction-override pattern"
 
-    if _ROLE_INJECTION.search(query):
+    if _ROLE_INJECTION.search(normalized):
         return True, "Query contains role-injection pattern"
 
-    if _PROMPT_LEAK.search(query):
+    if _PROMPT_LEAK.search(normalized):
         return True, "Query attempts to extract system instructions"
 
-    if _JAILBREAK.search(query):
+    if _JAILBREAK.search(normalized):
         return True, "Query contains jailbreak pattern"
 
     return False, None
 
 
-def _has_unicode_control_chars(text: str) -> bool:
-    return any(unicodedata.category(ch) in _UNICODE_ATTACK_CATEGORIES for ch in text)
+def _has_disallowed_control_chars(text: str) -> bool:
+    for ch in text:
+        if unicodedata.category(ch) == "Cf" and ch not in _UNICODE_CF_ALLOW:
+            return True
+    return False
