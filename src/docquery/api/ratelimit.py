@@ -46,9 +46,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             while bucket and now - bucket[0] > _RATE_LIMIT_WINDOW_SECONDS:
                 bucket.popleft()
             if len(bucket) >= limit:
-                return JSONResponse(
-                    {"detail": "rate limit exceeded"}, status_code=429
-                )
+                return JSONResponse({"detail": "rate limit exceeded"}, status_code=429)
             bucket.append(now)
         return await call_next(request)
 

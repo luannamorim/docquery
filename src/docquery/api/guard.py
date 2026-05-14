@@ -104,7 +104,9 @@ _UNICODE_CF_ALLOW = frozenset(
 # ---------------------------------------------------------------------------
 
 
-def check_input(query: str, settings: Settings | None = None) -> tuple[bool, str | None]:
+def check_input(
+    query: str, settings: Settings | None = None
+) -> tuple[bool, str | None]:
     """Return (blocked, reason). blocked=True means the query was rejected.
 
     The query is NFKC-normalized before regex matching so homoglyph and

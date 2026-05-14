@@ -43,8 +43,7 @@ def get_user_clearance(
         raise HTTPException(
             status_code=400,
             detail=(
-                f"X-User-Clearance must be between 0 and "
-                f"{settings.max_clearance_level}"
+                f"X-User-Clearance must be between 0 and {settings.max_clearance_level}"
             ),
         )
     if x_user_clearance > 0:
@@ -69,9 +68,7 @@ class _TaskStore:
     def _evict(self, settings: Settings) -> None:
         now = datetime.now(UTC)
         ttl = timedelta(seconds=settings.task_ttl_seconds)
-        expired = [
-            k for k, v in self._items.items() if now - v["created_at"] > ttl
-        ]
+        expired = [k for k, v in self._items.items() if now - v["created_at"] > ttl]
         for k in expired:
             del self._items[k]
         while len(self._items) > settings.task_max_size:

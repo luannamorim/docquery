@@ -48,18 +48,19 @@ class Settings(BaseSettings):
     # Context expansion — fetch N neighbor chunks on each side of each reranked result
     context_expansion_window: int = 1
 
-    # Ingest hardening — paths under this root only; symlinks pointing outside are rejected
+    # Ingest hardening — only paths under this root are accepted by /ingest;
+    # symlinks pointing outside the root are filtered.
     ingest_root: Path = Path("docs")
 
     # Clearance / RBAC
-    # default_clearance_level: applied to any document that doesn't match clearance_policy.
-    # Default is 0 (public) to keep the demo corpus accessible; production deployments
-    # should set this to settings.max_clearance_level + 1 (fail-closed) and rely on
-    # clearance_policy to grant access explicitly.
+    # default_clearance_level: applied to documents that don't match
+    # clearance_policy. Default 0 (public) keeps the demo corpus accessible;
+    # production deployments should set this above max_clearance_level
+    # (fail-closed) and rely on clearance_policy for explicit access grants.
     default_clearance_level: int = 0
     max_clearance_level: int = 10
-    # Path-prefix → clearance mapping applied at ingest time. Each entry is (path_prefix, level).
-    # The first matching prefix wins; falls back to default_clearance_level when nothing matches.
+    # Path-prefix → clearance mapping applied at ingest time. The first
+    # matching prefix wins; falls back to default_clearance_level on no match.
     clearance_policy: list[tuple[str, int]] = []
 
     # Ingest task store
