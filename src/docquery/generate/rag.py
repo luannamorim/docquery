@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from openai import OpenAI
@@ -104,15 +105,18 @@ def query_pipeline(
     contexts = expand_contexts(
         contexts, qdrant, settings, user_clearance=user_clearance
     )
+    qid = hashlib.sha256(query.encode()).hexdigest()[:8]
     for source, reason in check_context(contexts):
         logger.warning(
-            "Possible indirect injection in retrieved chunk: source=%s reason=%s",
+            "Possible indirect injection: qid=%s source=%s reason=%s",
+            qid,
             source,
             reason,
         )
     logger.info(
-        "Query: %r — retrieved %d points, reranked to %d",
-        query,
+        "Query qid=%s len=%d points=%d contexts=%d",
+        qid,
+        len(query),
         len(points),
         len(contexts),
     )
