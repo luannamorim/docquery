@@ -81,7 +81,7 @@ def _chunk_semantic(doc: Document, settings: Settings) -> list[Chunk]:
             return embed_texts(texts, settings=settings).tolist()
 
         def embed_query(self, text: str) -> list[float]:
-            return embed_texts([text], settings=settings).tolist()[0]
+            return embed_texts([text], settings=settings)[0].tolist()
 
     chunker = SemanticChunker(
         embeddings=_EmbeddingsAdapter(),
