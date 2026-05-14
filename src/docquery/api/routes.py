@@ -72,9 +72,15 @@ def ingest(
     background_tasks: BackgroundTasks,
     settings: SettingsDep,
 ) -> IngestJobResponse:
-    path = Path(request.path)
-    if not path.exists():
+    root = settings.ingest_root.resolve()
+    try:
+        path = Path(request.path).resolve(strict=True)
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Path not found: {request.path}")
+    if not path.is_relative_to(root):
+        raise HTTPException(
+            status_code=400, detail="path must live under configured ingest_root"
+        )
     task_id = str(uuid.uuid4())
     _tasks[task_id] = {
         "status": "pending",

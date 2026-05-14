@@ -114,6 +114,9 @@ def load_document(path: Path, settings: Settings | None = None) -> Document:
 def load_directory(path: Path, settings: Settings | None = None) -> list[Document]:
     docs = []
     for file_path in sorted(path.iterdir()):
+        if file_path.is_symlink():
+            logger.warning("Skipping symlink during ingest: %s", file_path)
+            continue
         if file_path.suffix.lower() in LOADERS:
             docs.append(load_document(file_path, settings))
     return docs

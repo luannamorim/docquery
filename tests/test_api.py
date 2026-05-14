@@ -1,10 +1,22 @@
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from docquery.api.app import app
+from docquery.config import Settings, get_settings
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def ingest_root(tmp_path):
+    """Override settings.ingest_root to tmp_path for tests that POST /ingest."""
+    app.dependency_overrides[get_settings] = lambda: Settings(ingest_root=tmp_path)
+    try:
+        yield tmp_path
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
 
 
 def test_health() -> None:
@@ -78,11 +90,11 @@ def test_ingest_path_not_found() -> None:
     assert "not found" in response.json()["detail"].lower()
 
 
-def test_ingest_success(tmp_path) -> None:
-    (tmp_path / "test.md").write_text("# Hello\n\nWorld.")
+def test_ingest_success(ingest_root) -> None:
+    (ingest_root / "test.md").write_text("# Hello\n\nWorld.")
     mock_result = {"chunks": 3, "deleted": 0}
     with patch("docquery.api.routes.ingest_path", return_value=mock_result) as mock:
-        response = client.post("/ingest", json={"path": str(tmp_path)})
+        response = client.post("/ingest", json={"path": str(ingest_root)})
     assert response.status_code == 202
     data = response.json()
     assert "task_id" in data
@@ -90,11 +102,19 @@ def test_ingest_success(tmp_path) -> None:
     mock.assert_called_once()
 
 
-def test_ingest_status_done(tmp_path) -> None:
-    (tmp_path / "test.md").write_text("# Hello\n\nWorld.")
+def test_ingest_path_outside_root_rejected(ingest_root, tmp_path_factory) -> None:
+    outside = tmp_path_factory.mktemp("outside")
+    (outside / "test.md").write_text("# Hello")
+    response = client.post("/ingest", json={"path": str(outside)})
+    assert response.status_code == 400
+    assert "ingest_root" in response.json()["detail"]
+
+
+def test_ingest_status_done(ingest_root) -> None:
+    (ingest_root / "test.md").write_text("# Hello\n\nWorld.")
     mock_result = {"chunks": 3, "deleted": 0}
     with patch("docquery.api.routes.ingest_path", return_value=mock_result):
-        post_response = client.post("/ingest", json={"path": str(tmp_path)})
+        post_response = client.post("/ingest", json={"path": str(ingest_root)})
     task_id = post_response.json()["task_id"]
     status_response = client.get(f"/ingest/{task_id}")
     assert status_response.status_code == 200

@@ -34,7 +34,7 @@ class QueryResponse(BaseModel):
 
 
 class IngestRequest(BaseModel):
-    path: str = Field(min_length=1, examples=["docs/sample"])
+    path: str = Field(min_length=1, max_length=4096, examples=["docs/sample"])
 
 
 class IngestResponse(BaseModel):

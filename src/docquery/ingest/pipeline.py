@@ -171,10 +171,10 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
         current_sources = {
             str(f) for f in path.iterdir() if f.suffix.lower() in LOADERS
         }
-        docs = load_directory(path)
+        docs = load_directory(path, settings=settings)
     else:
         current_sources = set()
-        docs = [load_document(path)]
+        docs = [load_document(path, settings=settings)]
 
     logger.info("Loaded %d document(s) from %s", len(docs), path)
 
