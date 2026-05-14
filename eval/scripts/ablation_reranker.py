@@ -1,16 +1,9 @@
 """Ablation study: RAGAS metrics and cost with vs without cross-encoder reranking.
 
 Runs eval twice on the same dataset:
-  - with_reranker:    default settings (reranker active, top-k from config)
-  - without_reranker: reranker disabled by setting reranker_score_threshold
-                      to +inf so all candidates are filtered out, then
-                      bypassing by passing the raw retrieved points directly.
-
-To avoid re-implementing the pipeline, "without_reranker" uses
-reranker_top_k = retrieval_top_k (no filtering) and
-reranker_score_threshold = +1e9 means all pass but are unordered.
-A cleaner approach: the reranker is skipped by setting an env override
-RERANKER_TOP_K=0 so rerank() returns the raw points unchanged.
+  - with_reranker:    default settings (cross-encoder active, top-k from config)
+  - without_reranker: RERANKER_TOP_K=0 — rerank() early-exits and returns the
+                      raw retrieved points without cross-encoder scoring.
 
 Usage:
     python eval/scripts/ablation_reranker.py [--dataset eval/dataset_v2.json]
@@ -44,13 +37,12 @@ def _run_eval(
     _gs.cache_clear()
 
     if not reranker_enabled:
-        # Set threshold so high that nothing is filtered, and top_k matches retrieval
-        # Effectively: skip cross-encoder ordering
-        os.environ["RERANKER_SCORE_THRESHOLD"] = "1000.0"
-        os.environ["RERANKER_TOP_K"] = "20"
+        # RERANKER_TOP_K=0 triggers the early-exit path in rerank(),
+        # bypassing the cross-encoder entirely.
+        os.environ["RERANKER_TOP_K"] = "0"
     else:
-        os.environ.pop("RERANKER_SCORE_THRESHOLD", None)
         os.environ.pop("RERANKER_TOP_K", None)
+    os.environ.pop("RERANKER_SCORE_THRESHOLD", None)
 
     _gs.cache_clear()
     settings = _gs()
