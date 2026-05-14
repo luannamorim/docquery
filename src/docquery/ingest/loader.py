@@ -75,7 +75,11 @@ def load_text(path: Path, settings: Settings | None = None) -> Document:
     file_type = ".md" if promoted else path.suffix
     meta: dict[str, str | int] = {"source": str(path), "file_type": file_type}
     if "clearance" in fm_meta:
-        meta["clearance_level"] = fm_meta["clearance"]
+        logger.warning(
+            "Frontmatter 'clearance' on %s is ignored; classification is set by "
+            "settings.clearance_policy at ingest time",
+            path,
+        )
     return Document(content=content, metadata=meta)
 
 

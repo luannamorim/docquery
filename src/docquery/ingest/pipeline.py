@@ -161,6 +161,25 @@ def delete_chunks_for_sources(
         )
 
 
+def _apply_clearance_policy(docs: list, settings: Settings) -> None:
+    """Set clearance_level on each doc based on settings.clearance_policy.
+
+    Policy entries are (path_prefix, level); the first matching prefix wins.
+    Unmatched documents fall back to settings.default_clearance_level. The
+    frontmatter `clearance` field is intentionally ignored — classification is
+    server-side only so untrusted authors cannot self-label sensitive content.
+    """
+    for doc in docs:
+        source = str(doc.metadata.get("source", ""))
+        level = settings.default_clearance_level
+        for prefix, lvl in settings.clearance_policy:
+            if source.startswith(prefix):
+                level = lvl
+                break
+        doc.metadata["clearance_level"] = level
+        logger.info("Clearance applied: source=%s level=%d", source, level)
+
+
 def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     """Ingest a file or directory into Qdrant. Returns chunk and deleted counts."""
     settings = settings or get_settings()
@@ -177,6 +196,8 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
         docs = [load_document(path, settings=settings)]
 
     logger.info("Loaded %d document(s) from %s", len(docs), path)
+
+    _apply_clearance_policy(docs, settings)
 
     all_chunks: list[Chunk] = []
     for doc in docs:

@@ -51,8 +51,12 @@ class Settings(BaseSettings):
     # Ingest hardening — paths under this root only; symlinks pointing outside are rejected
     ingest_root: Path = Path("docs")
 
-    # Clearance / RBAC — fail-closed default for documents without policy match
-    default_clearance_level: int = 999
+    # Clearance / RBAC
+    # default_clearance_level: applied to any document that doesn't match clearance_policy.
+    # Default is 0 (public) to keep the demo corpus accessible; production deployments
+    # should set this to settings.max_clearance_level + 1 (fail-closed) and rely on
+    # clearance_policy to grant access explicitly.
+    default_clearance_level: int = 0
     max_clearance_level: int = 10
     # Path-prefix → clearance mapping applied at ingest time. Each entry is (path_prefix, level).
     # The first matching prefix wins; falls back to default_clearance_level when nothing matches.
