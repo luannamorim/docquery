@@ -1,11 +1,16 @@
 {
-    "$schema": "https://json.schemastore.org/claude-code-settings.json",
-    "permissions": {
-        "deny": [
-            "Read(./.env)",
-            "Read(./.env.*)",
-            "Bash(rm -rf *)",
-            "Bash(sudo *)"
-        ]
-    }
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(rm -rf *)",
+      "Bash(sudo *)"
+    ]
+  },
+  "enabledPlugins": {
+    "code-simplifier@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "context7@claude-plugins-official": true
+  }
 }
