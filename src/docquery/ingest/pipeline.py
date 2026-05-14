@@ -72,8 +72,14 @@ def ingest_chunks(
         PointStruct(
             id=int(
                 hashlib.sha256(
-                    (chunk.text + chunk.metadata.get("source", "")).encode()
-                ).hexdigest()[:16],
+                    "\x00".join(
+                        [
+                            str(chunk.metadata.get("source", "")),
+                            str(chunk.metadata.get("chunk_index", 0)),
+                            chunk.text,
+                        ]
+                    ).encode()
+                ).hexdigest()[:32],
                 16,
             ),
             vector={
