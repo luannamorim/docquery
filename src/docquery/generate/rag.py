@@ -98,7 +98,11 @@ def query_pipeline(
     """
     settings = settings or get_settings()
     qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
-    openai_client = OpenAI(api_key=settings.openai_api_key.get_secret_value() or None)
+    openai_client = OpenAI(
+        api_key=settings.openai_api_key.get_secret_value() or None,
+        timeout=settings.openai_timeout_seconds,
+        max_retries=settings.openai_max_retries,
+    )
 
     points = retrieve(query, qdrant, settings, user_clearance=user_clearance)
     contexts = rerank(query, points, settings)
