@@ -25,6 +25,7 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
@@ -340,9 +341,7 @@ class AttackResult:
     expected_blocked: bool
     blocked_at_guard: bool
     guard_reason: str | None
-    result: (
-        str  # "correct_block" | "correct_pass" | "false_negative" | "false_positive"
-    )
+    result: Literal["correct_block", "correct_pass", "false_negative", "false_positive"]
 
 
 def run_suite() -> dict:
