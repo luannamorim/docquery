@@ -18,9 +18,11 @@ docquery combines **hybrid search (dense + BM25)**, **cross-encoder reranking**,
 
 ---
 
-## I built this. Then I audited it.
+## I built this. Then I audited it. Twice.
 
-The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS evaluation, idempotent ingest. But "working" and "defensible" are different standards. This sprint closed six measurable gaps:
+The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS evaluation, idempotent ingest. But "working" and "defensible" are different standards. The first audit closed six product gaps; the second pass ran two AI security/code reviewers against the result and closed everything HIGH / MEDIUM / LOW they raised.
+
+**Pass 1 — product gaps:**
 
 | Gap | Before | After |
 |-----|--------|-------|
@@ -31,7 +33,24 @@ The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS ev
 | RBAC | All documents accessible to all users | `clearance_level` per chunk; `X-User-Clearance` header filters retrieval |
 | Self-audit narrative | None | This README |
 
-The tradeoff for hardening instead of starting a new project: six gaps closed in ~1.5 weeks, narrative of "engineer auditing their own work" — which is rarer and more credible in a portfolio than project #N.
+**Pass 2 — security & code-review findings, all addressed:**
+
+| Finding | Before | After |
+|-----|--------|-------|
+| Path traversal in `/ingest` (HIGH) | Any local path accepted, indexable, then readable via `/query` | `settings.ingest_root` allowlist with `Path.resolve()` + `is_relative_to()`; symlinks filtered |
+| Clearance trusted to document frontmatter (HIGH) | `clearance: 5` in YAML could be set by any ingest author; docs without frontmatter defaulted to 0 (public) | Server-side `clearance_policy` (path-prefix → level) is the only source of truth; frontmatter ignored with a log warning |
+| Prompt-injection guard: English-only, no indirect injection | Regexes only match Latin keywords; ingested poisoned chunks bypassed | NFKC normalization, PT-BR/ES alternations, `check_context()` flags injection patterns inside retrieved chunks |
+| Untrusted exception strings echoed via `/ingest/{task_id}` | `error: str(exc)` leaked filesystem paths and internals | Generic `"ingestion failed"` to clients; full traceback logged server-side |
+| `_tasks` dict grew unbounded | One ingest per byte of memory; multi-worker silently lost state | `OrderedDict`-backed store with `task_ttl_seconds` and `task_max_size` eviction |
+| Point-id collisions on repeated text | `sha256(text + source)[:16]` = 64 bits, no `chunk_index`, repeated boilerplate silently overwrote | `sha256(source\0chunk_index\0text)[:32]` = 128 bits |
+| Query plaintext logged | `logger.info("Query: %r", query)` → PII in pipeline | sha256 `qid` correlation id + metadata only |
+| Qdrant published on host, no API key | `ports: 6333:6333` opens credential-less DB to any machine on the host network | `expose:` keeps it on the docker network; `QDRANT_API_KEY` plumbed through |
+| No timeouts, rate limit, body cap, security headers | Worker could pin for 10 min on OpenAI stall; no DoS friction | OpenAI `timeout`/`max_retries`, sliding-window rate limit, `Content-Length` cap, `nosniff` / `Referrer-Policy` / `Cache-Control` middleware |
+| Reranker ablation measured the wrong thing | `RERANKER_TOP_K=20` + huge threshold kept the cross-encoder running and merely loosened the filter | `rerank()` early-exits when `reranker_top_k <= 0`; ablation script truly turns it off |
+| Bare `instructions?` false-positived legitimate queries | "What are the instructions to configure X?" → 400 | Tighter `_PROMPT_LEAK` requires a qualifier (`system / hidden / initial / original / full / base`) |
+| Injection suite threshold was theatrical | 85% over a hand-curated suite the regex was designed against | 95% threshold, 47 attacks including PT-BR translations and NFKC fullwidth-Latin evasions, 100% block rate measured |
+
+The tradeoff for hardening instead of starting a new project: a portfolio narrative of "engineer auditing their own work, twice" — which is rarer and more credible than project #N.
 
 ---
 
@@ -44,9 +63,10 @@ Technical teams accumulate large volumes of documentation — architecture docs,
 ```mermaid
 flowchart TD
     subgraph Ingestion
-        A[Documents\nmd / pdf / txt] --> B[Loader\nfrontmatter clearance]
+        A[Documents\nmd / pdf / txt] --> B[Loader\ningest_root allowlist]
         B --> C[Chunker\nmarkdown · recursive · semantic]
-        C --> D[Embedder\nall-MiniLM-L6-v2]
+        C --> Y[Clearance Policy\npath_prefix → level]
+        Y --> D[Embedder\nall-MiniLM-L6-v2]
         D --> E[(Qdrant\ndense + sparse\nclearance_level index)]
     end
 
@@ -113,8 +133,8 @@ make serve
 | Framework      | LangChain, LlamaIndex, custom         | **Thin custom + individual libs**                               | No framework lock-in, explicit pipeline control |
 | Evaluation     | Manual, RAGAS, custom                 | **RAGAS 0.4.x**                                                 | Industry standard, reproducible, comparable metrics |
 | Config         | dotenv, Dynaconf, pydantic-settings   | **pydantic-settings**                                           | Type-safe, env-based, integrates with FastAPI DI |
-| RBAC           | JWT decode, header, body field        | **`X-User-Clearance` header via FastAPI Depends**               | Honest: no auth service in scope. Header is cleanly separated from payload, testable with curl |
-| Injection guard | Llama Guard, NeMo Guardrails, custom | **Regex + heuristic validator (guard.py)**                      | Zero latency, zero dependencies, covers OWASP LLM01/LLM06 patterns; second layer is hardened system prompt |
+| RBAC           | JWT decode, header, body field        | **Server-side `clearance_policy` + `X-User-Clearance` header**  | Honest: no auth service in scope. Classification is server-side (frontmatter ignored), bound-checked header, audit-logged on use |
+| Injection guard | Llama Guard, NeMo Guardrails, custom | **NFKC-normalized regex validator (guard.py)**                  | Zero latency, zero dependencies, covers OWASP LLM01/LLM06 patterns in EN + PT-BR/ES, NFKC handles fullwidth-Latin evasions; second layer is hardened system prompt; third is `check_context()` over retrieved chunks |
 
 ## Evaluation Results
 
@@ -145,17 +165,17 @@ Run `make compare-chunkers` to evaluate `markdown`, `recursive`, and `semantic` 
 
 ## RBAC — Clearance-Level Access Control
 
-Chunks carry an integer `clearance_level` payload field (default: 0). Documents declare their clearance in YAML frontmatter:
+Chunks carry an integer `clearance_level` payload field. **Classification is server-side**: the level is assigned at ingest time from `settings.clearance_policy` — a list of `(path_prefix, level)` tuples, first match wins — never from the document itself. Frontmatter `clearance:` is parsed but explicitly **ignored** with a log warning, because an untrusted ingest author could otherwise self-label sensitive content as public.
 
-```markdown
----
-clearance: 5
----
-# Internal Architecture Notes
-...
+Configure the policy via env (`pydantic-settings` parses JSON):
+
+```bash
+CLEARANCE_POLICY='[["docs/sample/internal_architecture.md", 5], ["docs/sample/", 0]]'
+DEFAULT_CLEARANCE_LEVEL=0   # set above MAX_CLEARANCE_LEVEL for fail-closed prod
+MAX_CLEARANCE_LEVEL=10      # ceiling enforced on X-User-Clearance header
 ```
 
-At query time, pass `X-User-Clearance` header. Only chunks with `clearance_level ≤ X-User-Clearance` are retrieved. The filter is applied at both the hybrid retrieval step and the context expansion step to prevent neighbor leakage.
+At query time, pass `X-User-Clearance`. Only chunks with `clearance_level ≤ X-User-Clearance` are retrieved. The filter is applied at **both** the hybrid retrieval step (`hybrid.py`) and the context expansion step (`expand.py`) — the second is the easy-to-miss leak point where a privileged neighbor could otherwise be appended to a public hit's window.
 
 **Demo — same query, different clearance:**
 
@@ -175,30 +195,31 @@ curl -X POST http://localhost:8000/query \
 # → "The engineering team targets a mean cost of under $0.002 per query [1]..."
 ```
 
-> In production, `X-User-Clearance` would be derived from a verified JWT claim, not a raw header. The current implementation is explicitly a placeholder — the filter logic is production-ready, the auth transport is not.
+> In production, `X-User-Clearance` would be derived from a verified JWT claim, not a raw header. The header is bound-checked against `MAX_CLEARANCE_LEVEL` and logged on use; the filter logic is production-ready, the auth transport is not.
 
 ## Prompt Injection Guard
 
-The `/query` endpoint validates input before it reaches the retrieval pipeline. `src/docquery/api/guard.py` runs regex and heuristic checks covering:
+The `/query` endpoint validates input before it reaches the retrieval pipeline. `src/docquery/api/guard.py` NFKC-normalizes the query (flattening fullwidth-Latin homoglyphs) then runs regex/heuristic checks:
 
 | Layer | What it catches |
 |-------|----------------|
-| Instruction override | `ignore previous instructions`, `bypass all constraints`, etc. |
-| Role injection | `system: ...`, `<\|im_start\|>`, `### System`, `<sys>` tags |
-| Prompt leak | `reveal your system prompt`, `repeat your instructions`, etc. |
-| Jailbreak | DAN patterns, `act as an unrestricted AI`, persona switches |
-| Structural | Inputs > 2000 chars, Unicode RLO/zero-width characters |
+| Instruction override | `ignore previous instructions`, `bypass all constraints`, PT-BR/ES equivalents (`ignore as instruções`, `esqueça as regras`, `desconsidere`) |
+| Role injection | `system: ...`, `<\|im_start\|>`, `### System`, `<sys>` tags, PT-BR `sistema:` |
+| Prompt leak | Verb + qualifier + prompt-noun pattern (`reveal your system prompt`, `repeat your initial instructions`); bare `instructions` no longer triggers false positives like "What are the instructions to configure X?" |
+| Jailbreak | DAN, `act as an unrestricted AI`, persona switches, PT-BR `finja que é` / `aja como` |
+| Structural | Inputs above `GUARD_MAX_QUERY_LENGTH` (default 2000), disallowed Unicode `Cf` chars (RLO, ZWSP, ...) — ZWJ/ZWNJ/LRM/RLM/BOM allow-listed so emoji ZWJ sequences and bidi marks pass |
+| Indirect injection | `check_context()` re-applies override + role-injection regexes to **retrieved chunks** and logs a WARN when a poisoned doc is fetched — defence in depth, not a hard block (indexed docs may legitimately contain attack examples) |
 
 Blocked requests return `HTTP 400` with a reason string. The second layer is the hardened `SYSTEM_PROMPT` in `rag.py`, which explicitly instructs the LLM not to reveal instructions or adopt different roles.
 
-**Run the full injection suite** (requires `OPENAI_API_KEY` and Qdrant):
+**Run the full injection suite** (regex-only, no API key needed):
 
 ```bash
 python eval/security/injection_suite.py
 # → eval/results/security/injection_v1.json
 ```
 
-The suite covers 40 attacks (30 expected-block, 10 benign) across OWASP LLM Top 10 categories. The guard targets ≥ 85% block rate.
+The suite covers **47 attacks** across OWASP LLM Top 10 categories — 36 expected-block (direct injection, role injection, prompt leak, jailbreak, structural, PT-BR + NFKC evasions) and 11 benign/borderline — and targets **≥ 95% block rate** (currently 100%).
 
 ## API Reference
 
@@ -282,7 +303,7 @@ docquery/
 │   │   ├── compare_chunkers.py # eval across markdown/recursive/semantic
 │   │   └── ablation_reranker.py # reranker on vs off
 │   ├── security/
-│   │   └── injection_suite.py # 40-attack OWASP LLM Top 10 test suite
+│   │   └── injection_suite.py # 47-attack OWASP LLM Top 10 test suite (incl. PT-BR + NFKC evasions)
 │   └── results/               # timestamped JSON results (baseline.json committed)
 ├── docs/sample/               # sample docs for demo (incl. internal_architecture.md clearance:5)
 ├── tests/                     # pytest: chunker, API, RBAC, guard, cost
@@ -303,13 +324,24 @@ docquery/
 | Inspect collection | `GET http://localhost:6333/collections/documents`    |
 | Reset index        | `DELETE http://localhost:6333/collections/documents` |
 
-Directory ingest is fully idempotent: chunk IDs are `SHA256(content + source)` so re-ingesting the same file updates in place. Deleted files have their chunks cleaned up automatically on the next ingest.
+Directory ingest is fully idempotent: chunk IDs are the first 128 bits of `SHA256(source \0 chunk_index \0 text)`, so re-ingesting the same file updates in place. Including `chunk_index` in the key prevents silent overwrites when a document has repeated text (boilerplate, repeated table rows, recurring section headers). Deleted files have their chunks cleaned up automatically on the next ingest.
 
 ## Production Considerations
 
-Not implemented (out of scope):
+Hardened during the second audit pass (see the "Pass 2" table above for the full list):
+
+- Path-prefix allowlist on `/ingest` against `INGEST_ROOT`, with symlink filtering.
+- Server-side clearance via `CLEARANCE_POLICY` (frontmatter ignored); `MAX_CLEARANCE_LEVEL` ceiling on the header.
+- In-memory rate limit (`RATE_LIMIT_REQUESTS_PER_MINUTE`), `Content-Length` cap (`REQUEST_MAX_BODY_BYTES`), and security headers (`X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`).
+- OpenAI client `timeout` + `max_retries` from settings.
+- Qdrant kept on the internal docker network with `QDRANT_API_KEY` plumbed through.
+- Ingest task store with TTL + max size eviction.
+- Generic error responses; full tracebacks logged server-side only.
+
+Not implemented (still out of scope for a portfolio project):
 
 - **Auth** — `X-User-Clearance` is an unauthenticated header. In prod, derive from a verified JWT claim.
+- **Multi-worker rate limit / task store** — both are in-process. A real deployment with `uvicorn --workers N > 1` needs Redis (or Qdrant payload) for shared state.
 - **Streaming** — responses could be streamed; OpenAI SDK supports it.
 - **Chat history** — single-turn Q&A only, no conversation state.
 - **Experiment tracking** — RAGAS results are committed JSON. In prod: MLflow or W&B with CI-gated eval.
