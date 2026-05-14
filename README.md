@@ -18,11 +18,9 @@ docquery combines **hybrid search (dense + BM25)**, **cross-encoder reranking**,
 
 ---
 
-## I built this. Then I audited it. Twice.
+## I built this. Then I audited it.
 
-The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS evaluation, idempotent ingest. But "working" and "defensible" are different standards. The first audit closed six product gaps; the second pass ran two AI security/code reviewers against the result and closed everything HIGH / MEDIUM / LOW they raised.
-
-**Pass 1 — product gaps:**
+The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS evaluation, idempotent ingest. But "working" and "defensible" are different standards. This sprint closed six measurable gaps:
 
 | Gap | Before | After |
 |-----|--------|-------|
@@ -33,24 +31,7 @@ The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS ev
 | RBAC | All documents accessible to all users | `clearance_level` per chunk; `X-User-Clearance` header filters retrieval |
 | Self-audit narrative | None | This README |
 
-**Pass 2 — security & code-review findings, all addressed:**
-
-| Finding | Before | After |
-|-----|--------|-------|
-| Path traversal in `/ingest` (HIGH) | Any local path accepted, indexable, then readable via `/query` | `settings.ingest_root` allowlist with `Path.resolve()` + `is_relative_to()`; symlinks filtered |
-| Clearance trusted to document frontmatter (HIGH) | `clearance: 5` in YAML could be set by any ingest author; docs without frontmatter defaulted to 0 (public) | Server-side `clearance_policy` (path-prefix → level) is the only source of truth; frontmatter ignored with a log warning |
-| Prompt-injection guard: English-only, no indirect injection | Regexes only match Latin keywords; ingested poisoned chunks bypassed | NFKC normalization, PT-BR/ES alternations, `check_context()` flags injection patterns inside retrieved chunks |
-| Untrusted exception strings echoed via `/ingest/{task_id}` | `error: str(exc)` leaked filesystem paths and internals | Generic `"ingestion failed"` to clients; full traceback logged server-side |
-| `_tasks` dict grew unbounded | One ingest per byte of memory; multi-worker silently lost state | `OrderedDict`-backed store with `task_ttl_seconds` and `task_max_size` eviction |
-| Point-id collisions on repeated text | `sha256(text + source)[:16]` = 64 bits, no `chunk_index`, repeated boilerplate silently overwrote | `sha256(source\0chunk_index\0text)[:32]` = 128 bits |
-| Query plaintext logged | `logger.info("Query: %r", query)` → PII in pipeline | sha256 `qid` correlation id + metadata only |
-| Qdrant published on host, no API key | `ports: 6333:6333` opens credential-less DB to any machine on the host network | `expose:` keeps it on the docker network; `QDRANT_API_KEY` plumbed through |
-| No timeouts, rate limit, body cap, security headers | Worker could pin for 10 min on OpenAI stall; no DoS friction | OpenAI `timeout`/`max_retries`, sliding-window rate limit, `Content-Length` cap, `nosniff` / `Referrer-Policy` / `Cache-Control` middleware |
-| Reranker ablation measured the wrong thing | `RERANKER_TOP_K=20` + huge threshold kept the cross-encoder running and merely loosened the filter | `rerank()` early-exits when `reranker_top_k <= 0`; ablation script truly turns it off |
-| Bare `instructions?` false-positived legitimate queries | "What are the instructions to configure X?" → 400 | Tighter `_PROMPT_LEAK` requires a qualifier (`system / hidden / initial / original / full / base`) |
-| Injection suite threshold was theatrical | 85% over a hand-curated suite the regex was designed against | 95% threshold, 47 attacks including PT-BR translations and NFKC fullwidth-Latin evasions, 100% block rate measured |
-
-The tradeoff for hardening instead of starting a new project: a portfolio narrative of "engineer auditing their own work, twice" — which is rarer and more credible than project #N.
+The tradeoff for hardening instead of starting a new project: six gaps closed in ~1.5 weeks, narrative of "engineer auditing their own work" — which is rarer and more credible in a portfolio than project #N.
 
 ---
 
@@ -328,7 +309,7 @@ Directory ingest is fully idempotent: chunk IDs are the first 128 bits of `SHA25
 
 ## Production Considerations
 
-Hardened during the second audit pass (see the "Pass 2" table above for the full list):
+Hardened in a follow-up security/code-review pass (full per-commit detail in `git log`):
 
 - Path-prefix allowlist on `/ingest` against `INGEST_ROOT`, with symlink filtering.
 - Server-side clearance via `CLEARANCE_POLICY` (frontmatter ignored); `MAX_CLEARANCE_LEVEL` ceiling on the header.
