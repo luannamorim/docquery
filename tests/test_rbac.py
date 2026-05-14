@@ -7,6 +7,7 @@ Validates that chunks with clearance_level > user_clearance are never returned.
 import hashlib
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from qdrant_client import QdrantClient
@@ -118,7 +119,7 @@ def test_clearance_0_never_returns_secret_chunk(qdrant_client, settings):
         patch("docquery.retrieve.hybrid.embed_texts") as mock_embed,
         patch("docquery.retrieve.hybrid.sparse_vector") as mock_sparse,
     ):
-        mock_embed.return_value = [[0.1] * DIM]
+        mock_embed.return_value = np.array([[0.1] * DIM])
         mock_sparse.return_value = (
             [4, 5, 6],
             [0.5, 0.3, 0.2],
@@ -138,9 +139,9 @@ def test_clearance_5_returns_secret_chunk(qdrant_client, settings):
         patch("docquery.retrieve.hybrid.embed_texts") as mock_embed,
         patch("docquery.retrieve.hybrid.sparse_vector") as mock_sparse,
     ):
-        mock_embed.return_value = [
-            [0.0, 1.0] + [0.0] * (DIM - 2)
-        ]  # aligned with secret dense
+        mock_embed.return_value = np.array(
+            [[0.0, 1.0] + [0.0] * (DIM - 2)]
+        )  # aligned with secret dense
         mock_sparse.return_value = ([4, 5, 6], [0.5, 0.3, 0.2])
 
         points = retrieve(query, qdrant_client, settings, user_clearance=5)
@@ -157,9 +158,9 @@ def test_clearance_0_can_access_public_chunk(qdrant_client, settings):
         patch("docquery.retrieve.hybrid.embed_texts") as mock_embed,
         patch("docquery.retrieve.hybrid.sparse_vector") as mock_sparse,
     ):
-        mock_embed.return_value = [
-            [1.0] + [0.0] * (DIM - 1)
-        ]  # aligned with public dense
+        mock_embed.return_value = np.array(
+            [[1.0] + [0.0] * (DIM - 1)]
+        )  # aligned with public dense
         mock_sparse.return_value = ([1, 2, 3], [0.5, 0.3, 0.2])
 
         points = retrieve(query, qdrant_client, settings, user_clearance=0)
