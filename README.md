@@ -20,18 +20,17 @@ docquery combines **hybrid search (dense + BM25)**, **cross-encoder reranking**,
 
 ## I built this. Then I audited it.
 
-The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS evaluation, idempotent ingest. But "working" and "defensible" are different standards. This sprint closed six measurable gaps:
+The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS evaluation, idempotent ingest. But "working" and "defensible" are different standards. This sprint closed five measurable gaps:
 
 | Gap | Before | After |
 |-----|--------|-------|
 | Cost tracking | No visibility into tokens/cost per query | `tokens_in`, `tokens_out`, `cost_usd` in every API response and eval run |
 | Gold-set size | 20 questions (low statistical power) | 101 stratified questions: factual, multi-hop, comparative, unanswerable |
 | Chunking strategy | Hardcoded Markdown + Recursive | Configurable via `CHUNKER_STRATEGY=markdown\|recursive\|semantic` |
-| Prompt injection | No input validation — any payload reached the LLM | Input guard blocks OWASP LLM01/LLM06 patterns at the API boundary |
-| RBAC | All documents accessible to all users | `clearance_level` per chunk; `X-User-Clearance` header filters retrieval |
-| Self-audit narrative | None | This README |
+| Prompt injection | No input validation — any payload reached the LLM | NFKC-normalized guard, PT-BR/ES patterns, indirect-injection check on retrieved chunks |
+| RBAC | All documents accessible to all users | Server-side `clearance_policy` (path-prefix → level), bound-checked `X-User-Clearance` header, filter applied at retrieve + expand |
 
-The tradeoff for hardening instead of starting a new project: six gaps closed in ~1.5 weeks, narrative of "engineer auditing their own work" — which is rarer and more credible in a portfolio than project #N.
+The tradeoff for hardening instead of starting a new project: five gaps closed in ~1.5 weeks, narrative of "engineer auditing their own work" — which is rarer and more credible in a portfolio than project #N.
 
 ---
 
@@ -158,7 +157,7 @@ MAX_CLEARANCE_LEVEL=10      # ceiling enforced on X-User-Clearance header
 
 At query time, pass `X-User-Clearance`. Only chunks with `clearance_level ≤ X-User-Clearance` are retrieved. The filter is applied at **both** the hybrid retrieval step (`hybrid.py`) and the context expansion step (`expand.py`) — the second is the easy-to-miss leak point where a privileged neighbor could otherwise be appended to a public hit's window.
 
-**Demo — same query, different clearance:**
+**Demo — same query, different clearance** (with the policy above set, so `internal_architecture.md` is classified at level 5):
 
 ```bash
 # Public user (clearance 0) — cannot see internal architecture content
@@ -259,7 +258,7 @@ docquery/
 ├── src/docquery/
 │   ├── config.py              # pydantic-settings env config
 │   ├── ingest/
-│   │   ├── loader.py          # document loaders (md, pdf, txt) + frontmatter RBAC
+│   │   ├── loader.py          # document loaders (md, pdf, txt)
 │   │   ├── chunker.py         # markdown / recursive / semantic strategies
 │   │   ├── sparse.py          # BM25 sparse vector computation
 │   │   └── pipeline.py        # ingestion orchestrator + clearance_level payload
@@ -271,8 +270,9 @@ docquery/
 │   ├── generate/
 │   │   └── rag.py             # context assembly + LLM + citations + cost tracking
 │   └── api/
-│       ├── app.py             # FastAPI app
-│       ├── guard.py           # prompt injection input validator
+│       ├── app.py             # FastAPI app + security/rate-limit middlewares
+│       ├── guard.py           # prompt injection input validator + check_context
+│       ├── ratelimit.py       # sliding-window rate limit + body size cap
 │       ├── routes.py          # /health, /query (guard + RBAC), /ingest
 │       └── schemas.py         # request/response models (+ tokens_in/out/cost_usd)
 ├── eval/
@@ -287,7 +287,7 @@ docquery/
 │   │   └── injection_suite.py # 47-attack OWASP LLM Top 10 test suite (incl. PT-BR + NFKC evasions)
 │   └── results/               # timestamped JSON results (baseline.json committed)
 ├── docs/sample/               # sample docs for demo (incl. internal_architecture.md clearance:5)
-├── tests/                     # pytest: chunker, API, RBAC, guard, cost
+├── tests/                     # pytest: api, chunker, expand, guard, loader, rag_cost, rbac, sparse
 ├── .github/workflows/
 │   ├── ci.yml                 # lint + pytest (no API key needed)
 │   └── security-suite.yml     # injection suite (workflow_dispatch, OPENAI_API_KEY)
