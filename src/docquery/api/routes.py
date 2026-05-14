@@ -1,5 +1,7 @@
 import logging
 import uuid
+from collections import OrderedDict
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -52,17 +54,60 @@ def get_user_clearance(
 
 ClearanceDep = Annotated[int, Depends(get_user_clearance)]
 
-_tasks: dict[str, dict] = {}
+
+class _TaskStore:
+    """In-process task store with TTL expiry and bounded size.
+
+    Single-worker only. Production deployments with --workers > 1 must move
+    this to an external store (Redis/Qdrant payload) — documented in SPEC.md
+    as a production consideration.
+    """
+
+    def __init__(self) -> None:
+        self._items: OrderedDict[str, dict] = OrderedDict()
+
+    def _evict(self, settings: Settings) -> None:
+        now = datetime.now(UTC)
+        ttl = timedelta(seconds=settings.task_ttl_seconds)
+        expired = [
+            k for k, v in self._items.items() if now - v["created_at"] > ttl
+        ]
+        for k in expired:
+            del self._items[k]
+        while len(self._items) > settings.task_max_size:
+            self._items.popitem(last=False)
+
+    def create(self, task_id: str, settings: Settings) -> None:
+        self._items[task_id] = {
+            "status": "pending",
+            "chunks": None,
+            "deleted": None,
+            "error": None,
+            "created_at": datetime.now(UTC),
+        }
+        self._items.move_to_end(task_id)
+        self._evict(settings)
+
+    def update(self, task_id: str, **fields) -> None:
+        if task_id in self._items:
+            self._items[task_id].update(fields)
+
+    def get(self, task_id: str, settings: Settings) -> dict | None:
+        self._evict(settings)
+        return self._items.get(task_id)
+
+
+_tasks = _TaskStore()
 
 
 def _run_ingest(task_id: str, path: Path, settings: Settings) -> None:
-    _tasks[task_id]["status"] = "running"
+    _tasks.update(task_id, status="running")
     try:
         result = ingest_path(path, settings=settings)
-        _tasks[task_id].update(status="done", **result)
+        _tasks.update(task_id, status="done", **result)
     except Exception:
         logger.exception("Ingest task %s failed", task_id)
-        _tasks[task_id].update(status="error", error="ingestion failed")
+        _tasks.update(task_id, status="error", error="ingestion failed")
 
 
 @router.get("/health", tags=["system"])
@@ -101,19 +146,20 @@ def ingest(
             status_code=400, detail="path must live under configured ingest_root"
         )
     task_id = str(uuid.uuid4())
-    _tasks[task_id] = {
-        "status": "pending",
-        "chunks": None,
-        "deleted": None,
-        "error": None,
-    }
+    _tasks.create(task_id, settings)
     background_tasks.add_task(_run_ingest, task_id, path, settings)
     return IngestJobResponse(task_id=task_id, status="pending")
 
 
 @router.get("/ingest/{task_id}", tags=["ingest"])
-def ingest_status(task_id: str) -> IngestStatusResponse:
-    task = _tasks.get(task_id)
+def ingest_status(task_id: str, settings: SettingsDep) -> IngestStatusResponse:
+    task = _tasks.get(task_id, settings)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    return IngestStatusResponse(task_id=task_id, **task)
+    return IngestStatusResponse(
+        task_id=task_id,
+        status=task["status"],
+        chunks=task.get("chunks"),
+        deleted=task.get("deleted"),
+        error=task.get("error"),
+    )
