@@ -10,6 +10,7 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
     volumes:
       - ./docs:/app/docs
+      - ${HOME}/.cache/huggingface:/home/appuser/.cache/huggingface
     depends_on:
       qdrant:
         condition: service_healthy
