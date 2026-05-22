@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/public/banner.svg" alt="docquery" width="380"/>
+<img src=".github/assets/banner.svg" alt="docquery" width="380"/>
 
 **Production-ready RAG system for technical documentation.**
 
