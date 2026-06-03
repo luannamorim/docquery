@@ -193,14 +193,15 @@ Organize content on two axes — **folder = what kind it is**, **frontmatter = w
 
 ```
 docs/
-  contracts/acme_fornecimento_2024.md   # doc_type=contract
-  policies/seguranca_informacao.md      # doc_type=policy
+  contracts/acme_supply_2024.md      # doc_type=contract
+  policies/information_security.md   # doc_type=policy
+  manuals/deployment_guide.md        # doc_type=manual
 ```
 ```markdown
 ---
-title: Contrato de Fornecimento Acme 2024
+title: Acme Supply Agreement 2024
 entity: Acme
-tags: [fornecimento, 2024]
+tags: [supply, 2024]
 ---
 ```
 
@@ -209,13 +210,13 @@ tags: [fornecimento, 2024]
 ```bash
 # only contracts
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "prazo de pagamento", "doc_types": ["contract"]}'
-# contracts tagged "fornecimento"
+  -d '{"query": "payment terms", "doc_types": ["contract"]}'
+# contracts tagged "supply"
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "prazo de pagamento", "doc_types": ["contract"], "tags": ["fornecimento"]}'
+  -d '{"query": "payment terms", "doc_types": ["contract"], "tags": ["supply"]}'
 # scope to a single document
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "prazo de pagamento", "source": "docs/contracts/acme_fornecimento_2024.md"}'
+  -d '{"query": "payment terms", "source": "docs/contracts/acme_supply_2024.md"}'
 ```
 
 Each citation carries the `doc_type` of its source for traceability. Full convention in [`docs/TAXONOMY.md`](docs/TAXONOMY.md).
@@ -335,6 +336,7 @@ docquery/
 │   ├── sample/                # sample docs for demo (incl. internal_architecture.md clearance:5)
 │   ├── contracts/             # example doc_type=contract (folder → type via TYPE_POLICY)
 │   ├── policies/              # example doc_type=policy
+│   ├── manuals/               # example doc_type=manual
 │   └── TAXONOMY.md            # content organization convention
 ├── tests/                     # pytest: api, chunker, doc_type, expand, guard, loader, rag_cost, rbac, sparse
 ├── .github/workflows/

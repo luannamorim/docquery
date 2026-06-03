@@ -1,57 +1,65 @@
-# Organização do conteúdo (taxonomia)
+# Content organization (taxonomy)
 
-O corpus é organizado em **dois eixos**, para que as perguntas possam ser
-escopadas com precisão.
+The corpus is organized along **two axes** so queries can be scoped precisely.
 
-## 1. Tipo do documento → pela PASTA
+## 1. Document type → by FOLDER
 
-A pasta define o `doc_type`, classificado **server-side** na ingestão (autores
-não se auto-rotulam). O mapeamento pasta → tipo fica em `settings.type_policy`.
+The folder determines `doc_type`, classified **server-side** at ingest time
+(authors do not self-label). The folder → type mapping lives in
+`settings.type_policy`.
 
 ```
 docs/
   contracts/   → doc_type=contract
   policies/    → doc_type=policy
-  manuals/     → doc_type=manual   (adicione conforme a necessidade)
+  manuals/     → doc_type=manual   (add more as needed)
 ```
 
-Configure uma vez no `.env` (valor é JSON — lista de pares `[prefixo, tipo]`,
-o primeiro prefixo que casa vence):
+Configure it once in `.env` (the value is JSON — a list of `[prefix, type]`
+pairs; the first matching prefix wins):
 
 ```dotenv
 type_policy=[["docs/contracts","contract"],["docs/policies","policy"],["docs/manuals","manual"]]
 ```
 
-## 2. De quem / sobre o quê → no FRONTMATTER de cada arquivo
+You can nest by company/owner inside a type folder; the type still resolves
+from the prefix:
 
-Metadados descritivos (não são fronteira de acesso) vão no cabeçalho YAML:
+```
+docs/contracts/acme/supply_2024.md   → doc_type=contract
+```
+
+## 2. Whom / what it is about → in each file's FRONTMATTER
+
+Descriptive metadata (not an access boundary) goes in the YAML header:
 
 ```markdown
 ---
-title: Contrato de Fornecimento Acme 2024
+title: Acme Supply Agreement 2024
 entity: Acme
-tags: [fornecimento, 2024]
+tags: [supply, 2024]
 ---
 ```
 
-Campos descritivos suportados: `title`, `entity`, `tags`. Campos que controlam
-acesso/escopo (`clearance`, `doc_type`) são **ignorados** no frontmatter — eles
-são definidos por política no servidor.
+Supported descriptive fields: `title`, `entity`, `tags`. Access/scope-gating
+fields (`clearance`, `doc_type`) are **ignored** in frontmatter — they are set
+by server-side policy.
 
-## Como consultar com escopo
+## Querying with scope
 
 ```jsonc
-{"query": "prazo de pagamento", "doc_types": ["contract"]}        // só contratos
-{"query": "...", "doc_types": ["contract"], "tags": ["Acme"]}     // contratos da Acme
-{"query": "...", "source": "docs/contracts/acme_fornecimento_2024.md"} // um documento
-{"query": "..."}                                                  // global (todos os tipos)
+{"query": "payment terms", "doc_types": ["contract"]}                 // contracts only
+{"query": "...", "doc_types": ["contract"], "tags": ["supply"]}       // contracts tagged supply
+{"query": "...", "source": "docs/contracts/acme_supply_2024.md"}      // a single document
+{"query": "..."}                                                      // global (all types)
 ```
 
-`doc_type` aparece em cada citação da resposta, para rastreabilidade.
+Each citation in the response includes the source's `doc_type` for
+traceability.
 
-## Resumo
+## Summary
 
-- **Pasta** = *que tipo é* (contrato, política, manual).
-- **Frontmatter** = *de quem / sobre o quê* (Acme, Globex, RH…).
+- **Folder** = *what kind it is* (contract, policy, manual).
+- **Frontmatter** = *whom / what it is about* (Acme, Globex, HR…).
 
-Defina o `type_policy` uma vez e depois é só colocar cada arquivo na pasta certa.
+Set `type_policy` once, then just drop each file into the right folder.
