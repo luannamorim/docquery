@@ -177,6 +177,49 @@ curl -X POST http://localhost:8000/query \
 
 > In production, `X-User-Clearance` would be derived from a verified JWT claim, not a raw header. The header is bound-checked against `MAX_CLEARANCE_LEVEL` and logged on use; the filter logic is production-ready, the auth transport is not.
 
+## Document Types & Scoped Retrieval
+
+The corpus is heterogeneous (contracts, policies, manuals, …), so chunks carry a `doc_type` plus descriptive facets, and queries can be scoped by them — metadata-filtered hybrid retrieval in a **single collection** (no per-type collections, no rigid hierarchy).
+
+- **`doc_type` — classified server-side by folder** via `settings.type_policy` (a list of `(path_prefix, doc_type)` tuples, first match wins; falls back to `DEFAULT_DOC_TYPE`). Like `clearance_level`, it can gate retrieval scope, so it is **never** read from frontmatter.
+- **Descriptive facets — from frontmatter**: `entity`, `tags`, `title` (non-security; allow-listed in the loader). Frontmatter `clearance`/`doc_type` are ignored.
+
+```bash
+TYPE_POLICY='[["docs/contracts","contract"],["docs/policies","policy"],["docs/manuals","manual"]]'
+DEFAULT_DOC_TYPE=document
+```
+
+Organize content on two axes — **folder = what kind it is**, **frontmatter = whom/what it's about**:
+
+```
+docs/
+  contracts/acme_fornecimento_2024.md   # doc_type=contract
+  policies/seguranca_informacao.md      # doc_type=policy
+```
+```markdown
+---
+title: Contrato de Fornecimento Acme 2024
+entity: Acme
+tags: [fornecimento, 2024]
+---
+```
+
+`/query` retrieves globally by default and accepts optional filters, ANDed with the clearance filter:
+
+```bash
+# only contracts
+curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
+  -d '{"query": "prazo de pagamento", "doc_types": ["contract"]}'
+# contracts tagged "fornecimento"
+curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
+  -d '{"query": "prazo de pagamento", "doc_types": ["contract"], "tags": ["fornecimento"]}'
+# scope to a single document
+curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
+  -d '{"query": "prazo de pagamento", "source": "docs/contracts/acme_fornecimento_2024.md"}'
+```
+
+Each citation carries the `doc_type` of its source for traceability. Full convention in [`docs/TAXONOMY.md`](docs/TAXONOMY.md).
+
 ## Prompt Injection Guard
 
 The `/query` endpoint validates input before it reaches the retrieval pipeline. `src/docquery/api/guard.py` NFKC-normalizes the query (flattening fullwidth-Latin homoglyphs) then runs regex/heuristic checks:
@@ -219,10 +262,12 @@ curl -X POST http://localhost:8000/query \
   -d '{"query": "What chunking strategy is used?"}'
 ```
 
+Optional body fields scope retrieval (see [Document Types](#document-types--scoped-retrieval)): `doc_types` (list), `source` (single path), `tags` (list) — all ANDed with the clearance filter.
+
 ```json
 {
   "answer": "Markdown files are split using MarkdownHeaderTextSplitter [1]...",
-  "sources": [{"index": 1, "source": "docs/sample/ingestion.md", "chunk_index": 2, "score": 9.4, "text": "...", "section": "Ingestion Pipeline > Chunking"}],
+  "sources": [{"index": 1, "source": "docs/sample/ingestion.md", "chunk_index": 2, "score": 9.4, "text": "...", "section": "Ingestion Pipeline > Chunking", "doc_type": "document"}],
   "query": "What chunking strategy is used?",
   "model": "gpt-4o-mini",
   "tokens_in": 842,
@@ -261,7 +306,7 @@ docquery/
 │   │   ├── loader.py          # document loaders (md, pdf, txt)
 │   │   ├── chunker.py         # markdown / recursive / semantic strategies
 │   │   ├── sparse.py          # BM25 sparse vector computation
-│   │   └── pipeline.py        # ingestion orchestrator + clearance_level payload
+│   │   └── pipeline.py        # ingestion orchestrator + clearance_level/doc_type payload
 │   ├── retrieve/
 │   │   ├── embedder.py        # sentence-transformers wrapper
 │   │   ├── hybrid.py          # hybrid retrieval with RRF + clearance filter
@@ -286,14 +331,19 @@ docquery/
 │   ├── security/
 │   │   └── injection_suite.py # 47-attack OWASP LLM Top 10 test suite (incl. PT-BR + NFKC evasions)
 │   └── results/               # timestamped JSON results (baseline.json committed)
-├── docs/sample/               # sample docs for demo (incl. internal_architecture.md clearance:5)
-├── tests/                     # pytest: api, chunker, expand, guard, loader, rag_cost, rbac, sparse
+├── docs/
+│   ├── sample/                # sample docs for demo (incl. internal_architecture.md clearance:5)
+│   ├── contracts/             # example doc_type=contract (folder → type via TYPE_POLICY)
+│   ├── policies/              # example doc_type=policy
+│   └── TAXONOMY.md            # content organization convention
+├── tests/                     # pytest: api, chunker, doc_type, expand, guard, loader, rag_cost, rbac, sparse
 ├── .github/workflows/
 │   ├── ci.yml                 # lint + pytest (no API key needed)
 │   └── security-suite.yml     # injection suite (workflow_dispatch, OPENAI_API_KEY)
 ├── docker-compose.yml
 ├── Dockerfile
 ├── Makefile
+├── SPEC.md                    # problem, architecture, 6-phase commit plan
 └── pyproject.toml
 ```
 
@@ -305,7 +355,7 @@ docquery/
 | Inspect collection | `GET http://localhost:6333/collections/documents`    |
 | Reset index        | `DELETE http://localhost:6333/collections/documents` |
 
-Directory ingest is fully idempotent: chunk IDs are the first 128 bits of `SHA256(source \0 chunk_index \0 text)`, so re-ingesting the same file updates in place. Including `chunk_index` in the key prevents silent overwrites when a document has repeated text (boilerplate, repeated table rows, recurring section headers). Deleted files have their chunks cleaned up automatically on the next ingest.
+Directory ingest is fully idempotent: chunk IDs are the first 64 bits of `SHA256(source \0 chunk_index \0 text)` (Qdrant integer point IDs are unsigned 64-bit), so re-ingesting the same file updates in place. Including `chunk_index` in the key prevents silent overwrites when a document has repeated text (boilerplate, repeated table rows, recurring section headers). Deleted files have their chunks cleaned up automatically on the next ingest.
 
 ## Production Considerations
 
