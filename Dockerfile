@@ -4,6 +4,10 @@ WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:0.6.14 /uv /usr/local/bin/uv
 
+# Large wheels (torch ~180MB, scipy ~34MB) can exceed uv's default 30s
+# download timeout on slower connections.
+ENV UV_HTTP_TIMEOUT=300
+
 COPY pyproject.toml uv.lock ./
 
 RUN uv sync --no-dev --no-install-project
