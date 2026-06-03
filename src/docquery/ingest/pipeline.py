@@ -48,6 +48,14 @@ def ensure_collection(client: QdrantClient, settings: Settings) -> None:
             field_name="clearance_level",
             field_schema=PayloadSchemaType.INTEGER,
         )
+        # Filterable taxonomy/facets (doc_type is server-side classified; entity
+        # and tags are descriptive). KEYWORD indexes also cover array values.
+        for field_name in ("doc_type", "entity", "tags"):
+            client.create_payload_index(
+                collection_name=settings.qdrant_collection,
+                field_name=field_name,
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
 
 
 def ingest_chunks(
@@ -93,6 +101,9 @@ def ingest_chunks(
                 "file_type": chunk.metadata.get("file_type", ""),
                 "section": chunk.metadata.get("section", ""),
                 "clearance_level": int(chunk.metadata.get("clearance_level", 0)),
+                "doc_type": chunk.metadata.get("doc_type", ""),
+                "entity": chunk.metadata.get("entity", ""),
+                "tags": chunk.metadata.get("tags", []),
             },
         )
         for chunk, dense, (indices, values) in zip(
@@ -186,6 +197,25 @@ def _apply_clearance_policy(docs: list, settings: Settings) -> None:
         logger.info("Clearance applied: source=%s level=%d", source, level)
 
 
+def _apply_type_policy(docs: list, settings: Settings) -> None:
+    """Set doc_type on each doc based on settings.type_policy.
+
+    Policy entries are (path_prefix, doc_type); the first matching prefix wins.
+    Unmatched documents fall back to settings.default_doc_type. As with
+    clearance, the type is classified server-side by path so untrusted authors
+    cannot self-label content that gates retrieval scope.
+    """
+    for doc in docs:
+        source = str(doc.metadata.get("source", ""))
+        doc_type = settings.default_doc_type
+        for prefix, name in settings.type_policy:
+            if source.startswith(prefix):
+                doc_type = name
+                break
+        doc.metadata["doc_type"] = doc_type
+        logger.info("Doc type applied: source=%s doc_type=%s", source, doc_type)
+
+
 def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     """Ingest a file or directory into Qdrant. Returns chunk and deleted counts."""
     settings = settings or get_settings()
@@ -212,6 +242,7 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     logger.info("Loaded %d document(s) from %s", len(docs), path)
 
     _apply_clearance_policy(docs, settings)
+    _apply_type_policy(docs, settings)
 
     all_chunks: list[Chunk] = []
     for doc in docs:

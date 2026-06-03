@@ -175,8 +175,9 @@ def _make_capturing_pipeline() -> tuple[dict, callable]:
     """Return (captured, mock_fn) pair for testing clearance propagation."""
     captured: dict = {}
 
-    def _pipeline(query: str, settings=None, user_clearance: int = 0) -> dict:
+    def _pipeline(query: str, settings=None, user_clearance: int = 0, **kwargs) -> dict:
         captured["user_clearance"] = user_clearance
+        captured.update(kwargs)
         return {
             "answer": "test",
             "sources": [],

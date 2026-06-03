@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     # matching prefix wins; falls back to default_clearance_level on no match.
     clearance_policy: list[tuple[str, int]] = []
 
+    # Document type taxonomy
+    # doc_type is classified server-side by path prefix, with the same trust
+    # model as clearance_policy: authors cannot self-label via frontmatter
+    # because doc_type can gate retrieval scope. First matching prefix wins;
+    # falls back to default_doc_type on no match.
+    default_doc_type: str = "document"
+    type_policy: list[tuple[str, str]] = []
+
     # Ingest task store
     task_ttl_seconds: int = 3600
     task_max_size: int = 1000

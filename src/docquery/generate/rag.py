@@ -64,6 +64,7 @@ def generate_answer(
             "score": ctx["score"],
             "text": ctx["text"],
             "section": ctx.get("section", ""),
+            "doc_type": ctx.get("doc_type", ""),
         }
         for i, ctx in enumerate(contexts)
     ]
@@ -89,12 +90,16 @@ def query_pipeline(
     query: str,
     settings: Settings | None = None,
     user_clearance: int = 0,
+    doc_types: list[str] | None = None,
+    source: str | None = None,
+    tags: list[str] | None = None,
 ) -> dict:
     """Full query pipeline: retrieve → rerank → generate.
 
     Returns {"answer": str, "sources": list[dict], "query": str, "model": str,
              "tokens_in": int, "tokens_out": int, "cost_usd": float}.
-    Only chunks with clearance_level <= user_clearance are retrieved.
+    Only chunks with clearance_level <= user_clearance are retrieved. Optional
+    doc_types/source/tags scope retrieval (ANDed with the clearance filter).
     """
     settings = settings or get_settings()
     qdrant = QdrantClient(
@@ -112,7 +117,15 @@ def query_pipeline(
         max_retries=settings.openai_max_retries,
     )
 
-    points = retrieve(query, qdrant, settings, user_clearance=user_clearance)
+    points = retrieve(
+        query,
+        qdrant,
+        settings,
+        user_clearance=user_clearance,
+        doc_types=doc_types,
+        source=source,
+        tags=tags,
+    )
     contexts = rerank(query, points, settings)
     contexts = expand_contexts(
         contexts, qdrant, settings, user_clearance=user_clearance

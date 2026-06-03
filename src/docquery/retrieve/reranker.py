@@ -19,6 +19,7 @@ def _point_to_context(point: ScoredPoint) -> dict:
         "chunk_index": payload.get("chunk_index", 0),
         "score": float(point.score),
         "section": payload.get("section", ""),
+        "doc_type": payload.get("doc_type", ""),
     }
 
 
@@ -59,6 +60,7 @@ def rerank(
             "chunk_index": payload.get("chunk_index", 0),
             "score": float(r["score"]),
             "section": payload.get("section", ""),
+            "doc_type": payload.get("doc_type", ""),
         }
         for r in ranked
         for payload in [(points[r["corpus_id"]].payload or {})]

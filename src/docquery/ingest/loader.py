@@ -11,42 +11,80 @@ logger = logging.getLogger(__name__)
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n", re.DOTALL)
 _FRONTMATTER_SCAN_LIMIT = 4096  # frontmatter won't exceed 4 KB; bounds backtracking
 
+# Metadata value type carried on documents/chunks. tags is multi-valued.
+MetaValue = str | int | list[str]
+
+# Descriptive frontmatter fields authors MAY set. These are non-security:
+# they help filtering/citation but do not gate access. Scalars become strings;
+# "tags" becomes a list of strings.
+_DESCRIPTIVE_SCALARS = ("entity", "title", "effective_date")
+# Fields that gate access/scope are classified server-side at ingest time and
+# are intentionally NOT read from frontmatter (untrusted authors must not
+# self-label). They are logged and dropped if present.
+_ACCESS_FIELDS = ("clearance", "doc_type")
+
 
 @dataclass
 class Document:
     content: str
-    metadata: dict[str, str | int] = field(default_factory=dict)
+    metadata: dict[str, MetaValue] = field(default_factory=dict)
 
 
-def _parse_frontmatter(text: str) -> tuple[str, dict[str, int]]:
-    """Strip YAML frontmatter and return (body, {key: int_value}) for integer fields.
+def _parse_frontmatter(text: str) -> tuple[str, dict]:
+    """Strip YAML frontmatter and return (body, parsed_dict).
 
-    Supports only a single level of key: value pairs where value is an integer.
-    Falls back to regex if pyyaml is not installed.
+    parsed_dict is the raw key→value mapping from the frontmatter block.
+    Falls back to a simple line parser if pyyaml is unavailable.
     """
     m = _FRONTMATTER_RE.match(text[:_FRONTMATTER_SCAN_LIMIT])
     if not m:
         return text, {}
     body = text[m.end() :]
     raw = m.group(1)
-    meta: dict[str, int] = {}
     try:
         import yaml  # pyyaml, transitively available via langchain
 
         parsed = yaml.safe_load(raw) or {}
-        meta = {k: int(v) for k, v in parsed.items() if isinstance(v, (int, float))}
+        return body, parsed if isinstance(parsed, dict) else {}
     except Exception:
         logger.debug(
             "yaml.safe_load failed on frontmatter, falling back to regex", exc_info=True
         )
+        parsed = {}
         for line in raw.splitlines():
             if ":" in line:
                 key, _, val = line.partition(":")
-                try:
-                    meta[key.strip()] = int(val.strip())
-                except ValueError:
-                    pass
-    return body, meta
+                parsed[key.strip()] = val.strip()
+        return body, parsed
+
+
+def _descriptive_metadata(parsed: dict, source: str) -> dict[str, MetaValue]:
+    """Extract the allowlisted descriptive fields, normalizing their types.
+
+    Access-gating fields (clearance, doc_type) in frontmatter are ignored with
+    a warning — they are set server-side by settings policy at ingest time.
+    """
+    meta: dict[str, MetaValue] = {}
+    for key in _DESCRIPTIVE_SCALARS:
+        if parsed.get(key) not in (None, ""):
+            meta[key] = str(parsed[key])
+    tags = parsed.get("tags")
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",")]
+    if isinstance(tags, list):
+        cleaned = [str(t).strip() for t in tags if str(t).strip()]
+        if cleaned:
+            meta["tags"] = cleaned
+    for key in _ACCESS_FIELDS:
+        if key in parsed:
+            logger.warning(
+                "Frontmatter %r on %s is ignored; %s is classified server-side "
+                "by settings policy at ingest time",
+                key,
+                source,
+                key,
+            )
+    return meta
 
 
 def _promote_headings(text: str, patterns: list[str]) -> tuple[str, bool]:
@@ -68,18 +106,17 @@ def _promote_headings(text: str, patterns: list[str]) -> tuple[str, bool]:
 def load_text(path: Path, settings: Settings | None = None) -> Document:
     settings = settings or get_settings()
     raw = path.read_text(encoding="utf-8")
-    fm_meta: dict[str, int] = {}
+    descriptive: dict[str, MetaValue] = {}
     if path.suffix.lower() == ".md":
-        raw, fm_meta = _parse_frontmatter(raw)
+        raw, parsed = _parse_frontmatter(raw)
+        descriptive = _descriptive_metadata(parsed, str(path))
     content, promoted = _promote_headings(raw, settings.heading_patterns)
     file_type = ".md" if promoted else path.suffix
-    meta: dict[str, str | int] = {"source": str(path), "file_type": file_type}
-    if "clearance" in fm_meta:
-        logger.warning(
-            "Frontmatter 'clearance' on %s is ignored; classification is set by "
-            "settings.clearance_policy at ingest time",
-            path,
-        )
+    meta: dict[str, MetaValue] = {
+        "source": str(path),
+        "file_type": file_type,
+        **descriptive,
+    }
     return Document(content=content, metadata=meta)
 
 
@@ -91,14 +128,12 @@ def load_pdf(path: Path, settings: Settings | None = None) -> Document:
     text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
     text, promoted = _promote_headings(text, settings.heading_patterns)
     file_type = ".md" if promoted else ".pdf"
-    return Document(
-        content=text,
-        metadata={
-            "source": str(path),
-            "file_type": file_type,
-            "pages": str(len(reader.pages)),
-        },
-    )
+    meta: dict[str, MetaValue] = {
+        "source": str(path),
+        "file_type": file_type,
+        "pages": str(len(reader.pages)),
+    }
+    return Document(content=text, metadata=meta)
 
 
 LOADERS: dict[str, Callable[[Path, Settings | None], Document]] = {

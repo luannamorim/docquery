@@ -8,7 +8,7 @@ from langchain_text_splitters import (
 )
 
 from docquery.config import Settings, get_settings
-from docquery.ingest.loader import Document
+from docquery.ingest.loader import Document, MetaValue
 
 _HEADERS_TO_SPLIT_ON = [("#", "h1"), ("##", "h2"), ("###", "h3")]
 _BREADCRUMB_KEYS = ("h1", "h2", "h3")
@@ -17,7 +17,7 @@ _BREADCRUMB_KEYS = ("h1", "h2", "h3")
 @dataclass
 class Chunk:
     text: str
-    metadata: dict[str, str | int] = field(default_factory=dict)
+    metadata: dict[str, MetaValue] = field(default_factory=dict)
 
 
 def _breadcrumb(metadata: dict) -> str:

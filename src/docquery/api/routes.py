@@ -122,7 +122,12 @@ def query(
     if blocked:
         raise HTTPException(status_code=400, detail=f"Query rejected: {reason}")
     result = query_pipeline(
-        request.query, settings=settings, user_clearance=user_clearance
+        request.query,
+        settings=settings,
+        user_clearance=user_clearance,
+        doc_types=request.doc_types,
+        source=request.source,
+        tags=request.tags,
     )
     return QueryResponse(**result)
 

@@ -80,6 +80,44 @@ def test_heading_promotion_preserves_existing_markdown(tmp_path: Path) -> None:
     assert doc.content.startswith("# Guia")
 
 
+def test_frontmatter_descriptive_fields_extracted(tmp_path: Path) -> None:
+    f = tmp_path / "contract.md"
+    f.write_text(
+        "---\n"
+        "entity: Acme Corp\n"
+        "tags: [financeiro, 2024]\n"
+        "title: Contrato de Servico\n"
+        "---\n"
+        "# Contrato\n\nClausulas.\n"
+    )
+    doc = load_document(f)
+    assert doc.metadata["entity"] == "Acme Corp"
+    assert doc.metadata["tags"] == ["financeiro", "2024"]
+    assert doc.metadata["title"] == "Contrato de Servico"
+    # frontmatter is stripped from the body
+    assert "entity:" not in doc.content
+    assert doc.content.startswith("# Contrato")
+
+
+def test_frontmatter_access_fields_are_ignored(tmp_path: Path) -> None:
+    """clearance and doc_type must never be self-labeled via frontmatter."""
+    f = tmp_path / "secret.md"
+    f.write_text(
+        "---\nclearance: 9\ndoc_type: top_secret\nentity: Acme\n---\n# Doc\n\nBody.\n"
+    )
+    doc = load_document(f)
+    assert "clearance" not in doc.metadata
+    assert "doc_type" not in doc.metadata  # set server-side at ingest, not by author
+    assert doc.metadata["entity"] == "Acme"
+
+
+def test_frontmatter_tags_from_comma_string(tmp_path: Path) -> None:
+    f = tmp_path / "doc.md"
+    f.write_text('---\ntags: "a, b, c"\n---\n# T\n\nx.\n')
+    doc = load_document(f)
+    assert doc.metadata["tags"] == ["a", "b", "c"]
+
+
 def test_year_sentences_not_promoted_as_heading(tmp_path: Path) -> None:
     f = tmp_path / "history.txt"
     f.write_text(
