@@ -8,6 +8,9 @@ services:
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      # Force HuggingFace's classic CDN download path. The Xet transfer
+      # protocol is blocked/throttled by some corporate TLS-inspection proxies.
+      - HF_HUB_DISABLE_XET=1
     volumes:
       - ./docs:/app/docs
       # Self-contained model cache so `docker compose up` works on any host
