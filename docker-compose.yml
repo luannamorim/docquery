@@ -16,6 +16,9 @@ services:
       - HF_HUB_DISABLE_XET=1
     volumes:
       - ./docs:/app/docs
+      # Real (confidential) corpus — gitignored on the host. Read-only mount so
+      # the container can ingest it when INGEST_ROOT=data.
+      - ./data:/app/data:ro
       # Self-contained model cache so `docker compose up` works on any host
       # regardless of UID. First run downloads the models (~90MB); persists after.
       - hf_cache:/home/appuser/.cache/huggingface
