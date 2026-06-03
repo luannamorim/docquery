@@ -18,7 +18,7 @@ Review recently written or modified code (not the entire codebase, unless explic
 2. **Read Context First**: Before reviewing, examine:
    - The relevant module's existing patterns (e.g., how other routes are structured, how other retrievers handle errors)
    - `src/docquery/config.py` for configuration conventions
-   - `docs/SPEC.md` if the change relates to a phase plan
+   - `SPEC.md` if the change relates to a phase plan
    - CLAUDE.md project instructions
 
 3. **Apply Multi-Dimensional Analysis** in this order:

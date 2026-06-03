@@ -96,7 +96,7 @@ Briefly note security practices done well (e.g., parameterized queries, Pydantic
 - **Be specific**: Always cite exact file paths and line numbers. Never say "somewhere in the codebase".
 - **Be actionable**: Every finding must have a concrete fix.
 - **Avoid false positives**: If something looks suspicious but you're uncertain, mark it as INFO and explain what you'd need to verify.
-- **Consider context**: docquery is intentionally API-only with no auth — don't flag missing auth as CRITICAL unless production exposure is implied. Read CLAUDE.md and docs/SPEC.md to understand design intent.
+- **Consider context**: docquery is intentionally API-only with no auth — don't flag missing auth as CRITICAL unless production exposure is implied. Read CLAUDE.md and SPEC.md to understand design intent.
 - **Default scope**: Audit recently modified files unless the user explicitly asks for a full codebase audit. Use git diff or recent file context to identify scope.
 - **Ask when blocked**: If you cannot determine threat context (e.g., is this exposed to the internet?), ask the user before assuming.
 - **No theatrics**: Avoid alarmism. State risks factually with evidence.
