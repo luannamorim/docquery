@@ -20,7 +20,9 @@ WORKDIR /app
 COPY --from=builder /app/.venv .venv
 COPY src/ src/
 
-RUN useradd --create-home appuser && mkdir -p eval/results && chown -R appuser:appuser eval/
+RUN useradd --create-home appuser \
+    && mkdir -p eval/results /home/appuser/.cache/huggingface \
+    && chown -R appuser:appuser eval/ /home/appuser/.cache
 USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"

@@ -10,7 +10,9 @@ services:
       - QDRANT_API_KEY=${QDRANT_API_KEY:-}
     volumes:
       - ./docs:/app/docs
-      - ${HOME}/.cache/huggingface:/home/appuser/.cache/huggingface
+      # Self-contained model cache so `docker compose up` works on any host
+      # regardless of UID. First run downloads the models (~90MB); persists after.
+      - hf_cache:/home/appuser/.cache/huggingface
     depends_on:
       qdrant:
         condition: service_healthy
@@ -36,3 +38,4 @@ services:
 
 volumes:
   qdrant_data:
+  hf_cache:
