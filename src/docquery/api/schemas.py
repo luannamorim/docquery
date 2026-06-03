@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HealthResponse(BaseModel):
@@ -8,11 +8,26 @@ class HealthResponse(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    query: str = Field(min_length=1, examples=["How does hybrid search work?"])
+    # Drive the Swagger "Try it out" body with clean examples so optional
+    # filters don't show misleading "string"/["string"] placeholders. The
+    # first example (query only) is what /docs prefills by default.
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"query": "How does hybrid search work?"},
+                {
+                    "query": "payment terms",
+                    "doc_types": ["contract"],
+                    "tags": ["supply"],
+                },
+            ]
+        }
+    )
+
+    query: str = Field(min_length=1)
     doc_types: list[str] | None = Field(
         default=None,
-        description="Restrict retrieval to these document types (e.g. ['contract'])",
-        examples=[["contract"]],
+        description="Restrict retrieval to these document types, e.g. ['contract']",
     )
     source: str | None = Field(
         default=None,
