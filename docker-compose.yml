@@ -7,7 +7,10 @@ services:
       - .env
     environment:
       - QDRANT_HOST=qdrant
-      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
+      # QDRANT_API_KEY comes from env_file (.env) — do not redefine it here.
+      # A `${QDRANT_API_KEY:-}` override would clobber the .env value with an
+      # empty string whenever the interpolation context lacks the var, which
+      # silently desyncs the app from the (authenticated) Qdrant server.
       # Force HuggingFace's classic CDN download path. The Xet transfer
       # protocol is blocked/throttled by some corporate TLS-inspection proxies.
       - HF_HUB_DISABLE_XET=1
@@ -29,7 +32,9 @@ services:
       - "6333"
       - "6334"
     environment:
-      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
+      # Fail loudly if QDRANT_API_KEY is unset/empty rather than starting an
+      # unauthenticated server that the app expects to be authenticated.
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:?QDRANT_API_KEY must be set in .env}
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:

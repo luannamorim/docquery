@@ -110,6 +110,10 @@ def query_pipeline(
             if settings.qdrant_api_key
             else None
         ),
+        # Qdrant runs plaintext HTTP on the internal docker network. Passing an
+        # api_key makes qdrant-client default to https=True, which fails the TLS
+        # handshake against the non-TLS server. Keep the connection on HTTP.
+        https=False,
     )
     openai_client = OpenAI(
         api_key=settings.openai_api_key.get_secret_value() or None,

@@ -87,7 +87,10 @@ def ingest_chunks(
                             chunk.text,
                         ]
                     ).encode()
-                ).hexdigest()[:32],
+                    # 16 hex chars = 64 bits. Qdrant integer point IDs must fit an
+                    # unsigned 64-bit int; a wider slice (e.g. 128 bits) is rejected
+                    # with 400 "not a valid point ID". Matches the test helpers.
+                ).hexdigest()[:16],
                 16,
             ),
             vector={
@@ -227,6 +230,10 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
             if settings.qdrant_api_key
             else None
         ),
+        # Qdrant runs plaintext HTTP on the internal docker network. Passing an
+        # api_key makes qdrant-client default to https=True, which fails the TLS
+        # handshake against the non-TLS server. Keep the connection on HTTP.
+        https=False,
     )
     ensure_collection(client, settings)
 
