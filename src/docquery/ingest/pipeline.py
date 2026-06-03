@@ -20,7 +20,7 @@ from qdrant_client.models import (
 
 from docquery.config import Settings, get_settings
 from docquery.ingest.chunker import Chunk, chunk_document
-from docquery.ingest.loader import LOADERS, load_directory, load_document
+from docquery.ingest.loader import iter_ingestable_files, load_directory, load_document
 from docquery.ingest.sparse import sparse_vector
 from docquery.retrieve.embedder import embed_texts
 
@@ -238,9 +238,7 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     ensure_collection(client, settings)
 
     if path.is_dir():
-        current_sources = {
-            str(f) for f in path.iterdir() if f.suffix.lower() in LOADERS
-        }
+        current_sources = {str(f) for f in iter_ingestable_files(path)}
         docs = load_directory(path, settings=settings)
     else:
         current_sources = set()

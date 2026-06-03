@@ -185,6 +185,7 @@ The corpus is heterogeneous (contracts, policies, manuals, …), so chunks carry
 - **Descriptive facets — from frontmatter**: `entity`, `tags`, `title` (non-security; allow-listed in the loader). Frontmatter `clearance`/`doc_type` are ignored.
 
 ```bash
+INGEST_ROOT=docs   # folder ingested (recursively); see note below for real corpora
 TYPE_POLICY='[["docs/contracts","contract"],["docs/policies","policy"],["docs/manuals","manual"]]'
 DEFAULT_DOC_TYPE=document
 ```
@@ -204,6 +205,8 @@ entity: Acme
 tags: [supply, 2024]
 ---
 ```
+
+Ingestion reads `INGEST_ROOT` **recursively**, so nested folders (e.g. by company) are picked up in one pass. The files above are committed examples; keep **real, confidential corpora out of git** — put them in `data/` (gitignored) and set `INGEST_ROOT=data` with `data/*` prefixes in `TYPE_POLICY`.
 
 `/query` retrieves globally by default and accepts optional filters, ANDed with the clearance filter:
 
@@ -338,6 +341,7 @@ docquery/
 │   ├── policies/              # example doc_type=policy
 │   ├── manuals/               # example doc_type=manual
 │   └── TAXONOMY.md            # content organization convention
+├── data/                      # real corpus to ingest — gitignored (set INGEST_ROOT=data)
 ├── tests/                     # pytest: api, chunker, doc_type, expand, guard, loader, rag_cost, rbac, sparse
 ├── .github/workflows/
 │   ├── ci.yml                 # lint + pytest (no API key needed)

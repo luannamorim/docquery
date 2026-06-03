@@ -44,6 +44,21 @@ def test_load_directory_empty(tmp_path: Path) -> None:
     assert load_directory(tmp_path) == []
 
 
+def test_load_directory_recurses_into_subfolders(tmp_path: Path) -> None:
+    (tmp_path / "contracts").mkdir()
+    (tmp_path / "policies").mkdir()
+    (tmp_path / "contracts" / "acme.md").write_text("# Acme")
+    (tmp_path / "policies" / "sec.txt").write_text("policy body")
+    (tmp_path / "top.md").write_text("# Top")
+    (tmp_path / "contracts" / "skip.csv").write_text("a,b,c")
+    docs = load_directory(tmp_path)
+    sources = {d.metadata["source"] for d in docs}
+    assert str(tmp_path / "contracts" / "acme.md") in sources
+    assert str(tmp_path / "policies" / "sec.txt") in sources
+    assert str(tmp_path / "top.md") in sources
+    assert len(docs) == 3  # nested files found, unsupported .csv skipped
+
+
 def test_document_default_metadata() -> None:
     doc = Document(content="test")
     assert doc.metadata == {}

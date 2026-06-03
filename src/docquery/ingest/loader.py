@@ -150,12 +150,22 @@ def load_document(path: Path, settings: Settings | None = None) -> Document:
     return loader(path, settings)
 
 
-def load_directory(path: Path, settings: Settings | None = None) -> list[Document]:
-    docs = []
-    for file_path in sorted(path.iterdir()):
+def iter_ingestable_files(path: Path) -> list[Path]:
+    """Recursively list supported files under path, sorted, skipping symlinks.
+
+    Recursion lets a single ingest root hold typed subfolders
+    (e.g. data/contracts/, data/policies/). `rglob` does not descend into
+    symlinked directories, and symlinked files are skipped explicitly.
+    """
+    files: list[Path] = []
+    for file_path in sorted(path.rglob("*")):
         if file_path.is_symlink():
             logger.warning("Skipping symlink during ingest: %s", file_path)
             continue
-        if file_path.suffix.lower() in LOADERS:
-            docs.append(load_document(file_path, settings))
-    return docs
+        if file_path.is_file() and file_path.suffix.lower() in LOADERS:
+            files.append(file_path)
+    return files
+
+
+def load_directory(path: Path, settings: Settings | None = None) -> list[Document]:
+    return [load_document(fp, settings) for fp in iter_ingestable_files(path)]

@@ -215,3 +215,8 @@ eval/results/*.json
 # stale fast as the code evolves. The agent definitions themselves live in
 # .claude/agents/ and ARE tracked.
 .claude/agent-memory/
+
+# Real (confidential) corpus to ingest — contracts, policies, etc. NEVER commit
+# private company documents. Set INGEST_ROOT=data and point type_policy at
+# data/* subfolders. The repo keeps only the example docs under docs/.
+/data/
