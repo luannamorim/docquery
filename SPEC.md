@@ -198,7 +198,7 @@ These go in the README and show senior-level thinking:
 | Reranking | None, LLM-based, cross-encoder | Cross-encoder | 50ms latency, measurable quality improvement, no LLM cost |
 | Framework | LangChain, LlamaIndex, custom | Thin custom + individual libs | No framework lock-in, explicit control over pipeline |
 | Eval | Manual testing, RAGAS, custom | RAGAS | Industry standard, reproducible, comparable metrics |
-| Content taxonomy | Collection-per-type, hierarchy, metadata facets | Metadata facets, single collection | Qdrant `Filter` isolates types without fragmenting the index or breaking cross-type retrieval |
+| Content taxonomy | Collection-per-folder, configured type policy, derived metadata facets | Facets derived from the ingested tree, single collection | Qdrant `Filter` scopes retrieval without fragmenting the index; deriving facets from the folders the corpus already has leaves nothing to configure or keep in sync |
 
 ### Content taxonomy & metadata model
 
@@ -208,17 +208,22 @@ retrieval in one collection**, not separate collections or a rigid hierarchy.
 
 Each chunk carries:
 
-- `doc_type` — classified **server-side** by path prefix (`settings.type_policy`,
-  applied in `_apply_type_policy`), mirroring the `clearance_policy` trust model.
-  Because `doc_type` can gate retrieval scope, it is **not** read from frontmatter
-  (untrusted authors must not self-label), exactly like `clearance_level`.
+- `folders` — the folder segments of the document's path relative to the root
+  that was ingested, derived **server-side** at ingest time. The corpus
+  structure is the taxonomy, so no configuration restates it. Because `folders`
+  gates retrieval scope, it is **not** read from frontmatter (untrusted authors
+  must not self-label), exactly like `clearance_level`.
+  (Superseded a `doc_type` facet configured by path prefix in `type_policy`:
+  for a SharePoint library it duplicated by hand the folder names already
+  present in every source URI.)
 - `entity`, `tags`, `title` — descriptive facets that may come from frontmatter
   (non-security; allowlisted in the loader).
 - `source`, `section`, `clearance_level` — as before.
 
 Queries default to **global** retrieval and accept optional scoping filters
-(`doc_types`, `source`, `tags`) that are ANDed with the always-on clearance
-filter. `doc_type` is surfaced in each citation for transparency.
+(`folders`, `source`, `tags`) that are ANDed with the always-on clearance
+filter. A folder name matches at any depth. `folders` is surfaced in each
+citation for transparency.
 
 ---
 

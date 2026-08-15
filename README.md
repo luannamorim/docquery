@@ -387,26 +387,24 @@ Both APIs are called as plain REST over `httpx`, with `msal` and `google-auth` h
 
 > Large corpora belong on the CLI. `POST /ingest` runs the pull in a background task on a single worker, so a multi-gigabyte folder will occupy it for the duration.
 
-## Document Types & Scoped Retrieval
+## Folder Facets & Scoped Retrieval
 
-The corpus is heterogeneous (contracts, policies, manuals, …), so chunks carry a `doc_type` plus descriptive facets, and queries can be scoped by them — metadata-filtered hybrid retrieval in a **single collection** (no per-type collections, no rigid hierarchy).
+The corpus is heterogeneous (sectors, subjects, years, …), so chunks carry the folders they live in plus descriptive facets, and queries can be scoped by them — metadata-filtered hybrid retrieval in a **single collection** (no per-folder collections, no rigid hierarchy).
 
-- **`doc_type` — classified server-side by folder** via `settings.type_policy` (a list of `(path_prefix, doc_type)` tuples, first match wins; falls back to `DEFAULT_DOC_TYPE`). Like `clearance_level`, it can gate retrieval scope, so it is **never** read from frontmatter.
-- **Descriptive facets — from frontmatter**: `entity`, `tags`, `title` (non-security; allow-listed in the loader). Frontmatter `clearance`/`doc_type` are ignored.
+- **`folders` — derived server-side from the path**: the folder segments of a document relative to the root that was ingested, lowercased and Unicode-normalized. There is nothing to configure; the structure the corpus already has *is* the taxonomy, and a folder created in SharePoint is a filter on the next ingest. Like `clearance_level`, it gates retrieval scope, so it is **never** read from frontmatter.
+- **Descriptive facets — from frontmatter**: `entity`, `tags`, `title` (non-security; allow-listed in the loader). Frontmatter `clearance`/`folders` are ignored.
 
 ```bash
 INGEST_ROOT=docs   # folder ingested (recursively); see note below for real corpora
-TYPE_POLICY='[["docs/contracts","contract"],["docs/policies","policy"],["docs/manuals","manual"]]'
-DEFAULT_DOC_TYPE=document
 ```
 
-Organize content on two axes — **folder = what kind it is**, **frontmatter = whom/what it's about**:
+Organize content on two axes — **folder = which sector/subject it belongs to**, **frontmatter = whom/what it's about**:
 
 ```
-docs/
-  contracts/acme_supply_2024.md      # doc_type=contract
-  policies/information_security.md   # doc_type=policy
-  manuals/deployment_guide.md        # doc_type=manual
+docs/                                (INGEST_ROOT)
+  rh/ferias.md                       # folders=["rh"]
+  rh/beneficios/plano.pdf            # folders=["rh", "beneficios"]
+  financeiro/2024/notas.xlsx         # folders=["financeiro", "2024"]
 ```
 ```markdown
 ---
@@ -416,23 +414,25 @@ tags: [supply, 2024]
 ---
 ```
 
-Ingestion reads `INGEST_ROOT` **recursively**, so nested folders (e.g. by company) are picked up in one pass. The files above are committed examples; keep **real, confidential corpora out of git** — put them in `data/` (gitignored) and set `INGEST_ROOT=data` with `data/*` prefixes in `TYPE_POLICY`.
+Ingestion reads `INGEST_ROOT` **recursively**, so nested folders are picked up in one pass, and a remote folder URI behaves the same way (`sharepoint://…/Documentos` with `RH/`, `Financeiro/` at its root). The files above are committed examples; keep **real, confidential corpora out of git** — put them in `data/` (gitignored) and set `INGEST_ROOT=data`. Always ingest from the same root: folders are relative to it, so pulling a subfolder afterwards re-indexes those documents with no facets.
 
-`/query` retrieves globally by default and accepts optional filters, ANDed with the clearance filter:
+`/query` retrieves globally by default and accepts optional filters, ANDed with the clearance filter. A folder name matches at **any depth**:
 
 ```bash
-# only contracts
+# the whole RH sector, nested folders included
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "payment terms", "doc_types": ["contract"]}'
-# contracts tagged "supply"
+  -d '{"query": "prazo de ferias", "folders": ["rh"]}'
+# one subject, wherever it sits in the tree
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "payment terms", "doc_types": ["contract"], "tags": ["supply"]}'
+  -d '{"query": "plano de saude", "folders": ["beneficios"], "tags": ["2024"]}'
 # scope to a single document
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "payment terms", "source": "docs/contracts/acme_supply_2024.md"}'
+  -d '{"query": "prazo de ferias", "source": "docs/rh/ferias.md"}'
 ```
 
-Each citation carries the `doc_type` of its source for traceability. Full convention in [`docs/TAXONOMY.md`](docs/TAXONOMY.md).
+Each citation carries the `folders` of its source for traceability. Full convention in [`docs/TAXONOMY.md`](docs/TAXONOMY.md).
+
+> **Upgrading:** chunks indexed before folder facets existed carry no `folders`, so any folder filter excludes them, and a collection created earlier has no index on the field. Re-ingest to restore both. Remove `TYPE_POLICY` and `DEFAULT_DOC_TYPE` from existing `.env` files — unknown keys fail startup with a validation error.
 
 ## Prompt Injection Guard
 
@@ -480,12 +480,12 @@ curl -X POST http://localhost:8000/query \
   -d '{"query": "What chunking strategy is used?"}'
 ```
 
-Optional body fields scope retrieval (see [Document Types](#document-types--scoped-retrieval)): `doc_types` (list), `source` (single path), `tags` (list) — all ANDed with the clearance filter.
+Optional body fields scope retrieval (see [Folder Facets](#folder-facets--scoped-retrieval)): `folders` (list, matched at any depth), `source` (single path), `tags` (list) — all ANDed with the clearance filter.
 
 ```json
 {
   "answer": "Markdown files are split using MarkdownHeaderTextSplitter [1]...",
-  "sources": [{"index": 1, "source": "docs/sample/ingestion.md", "chunk_index": 2, "score": 9.4, "text": "...", "section": "Ingestion Pipeline > Chunking", "doc_type": "document"}],
+  "sources": [{"index": 1, "source": "docs/sample/ingestion.md", "chunk_index": 2, "score": 9.4, "text": "...", "section": "Ingestion Pipeline > Chunking", "folders": ["sample"]}],
   "query": "What chunking strategy is used?",
   "model": "gpt-4o-mini",
   "tokens_in": 842,
@@ -534,7 +534,7 @@ docquery/
 │   │   ├── docling_loader.py  # Docling parsing/chunking (pdf, office, images)
 │   │   ├── chunker.py         # markdown / recursive / semantic strategies
 │   │   ├── sparse.py          # BM25 sparse vector computation
-│   │   └── pipeline.py        # ingestion orchestrator + clearance_level/doc_type payload
+│   │   └── pipeline.py        # ingestion orchestrator + clearance_level/folders payload
 │   ├── retrieve/
 │   │   ├── embedder.py        # sentence-transformers wrapper
 │   │   ├── hybrid.py          # hybrid retrieval with RRF + clearance filter
@@ -561,12 +561,12 @@ docquery/
 │   └── results/               # timestamped JSON results (baseline.json committed)
 ├── docs/
 │   ├── sample/                # sample docs for demo (incl. internal_architecture.md clearance:5)
-│   ├── contracts/             # example doc_type=contract (folder → type via TYPE_POLICY)
-│   ├── policies/              # example doc_type=policy
-│   ├── manuals/               # example doc_type=manual
+│   ├── contracts/             # example folder facet (folders=["contracts"])
+│   ├── policies/              # example folder facet (folders=["policies"])
+│   ├── manuals/               # example folder facet (folders=["manuals"])
 │   └── TAXONOMY.md            # content organization convention
 ├── data/                      # real corpus to ingest — gitignored (set INGEST_ROOT=data)
-├── tests/                     # pytest: api, chunker, doc_type, expand, guard, loader, rag_cost, rbac, sparse
+├── tests/                     # pytest: api, chunker, expand, folders, guard, loader, rag_cost, rbac, sparse
 ├── .github/workflows/
 │   ├── ci.yml                 # lint + pytest (no API key needed)
 │   └── security-suite.yml     # injection suite (workflow_dispatch, OPENAI_API_KEY)
