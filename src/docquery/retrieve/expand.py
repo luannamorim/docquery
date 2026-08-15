@@ -8,7 +8,6 @@ def expand_contexts(
     contexts: list[dict],
     client: QdrantClient,
     settings: Settings,
-    user_clearance: int = 0,
     sectors: list[str] | None = None,
 ) -> list[dict]:
     """Expand each reranked context with adjacent chunks from the same source.
@@ -45,7 +44,6 @@ def expand_contexts(
         must = [
             FieldCondition(key="source", match=MatchValue(value=src)),
             FieldCondition(key="chunk_index", range=Range(gte=lo, lte=hi)),
-            FieldCondition(key="clearance_level", range=Range(lte=user_clearance)),
         ]
         if sectors:
             must.append(FieldCondition(key="sector", match=MatchAny(any=sectors)))

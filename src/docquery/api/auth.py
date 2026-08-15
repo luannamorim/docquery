@@ -107,26 +107,13 @@ def validate_token(token: str, settings: Settings) -> dict:
         ) from exc
 
 
-def roles_to_clearance(roles: list[str], settings: Settings) -> int:
-    """Map app roles to a clearance level; the highest matching role wins.
-
-    A token with no mapped role is not an error: it gets
-    default_clearance_level, because clearance filters what retrieval returns
-    rather than gating the endpoint.
-    """
-    levels = [lvl for role, lvl in settings.auth_role_clearance_map if role in roles]
-    if not levels:
-        return settings.default_clearance_level
-    return min(max(levels), settings.max_clearance_level)
-
-
 def roles_to_sectors(roles: list[str], settings: Settings) -> list[str]:
     """Sectors a token may read, as the union of its mapped app roles.
 
-    An empty result means the caller reads nothing — unlike a clearance level,
-    there is no floor to fall back to. Names are normalized the same way the
-    ingest normalizes folder names, so the mapping can be written with whatever
-    casing the SharePoint library displays.
+    An empty result means the caller reads nothing: a token with no mapped role
+    is not an error, it simply reaches no compartment. Names are normalized the
+    same way ingest normalizes folder names, so the mapping can be written with
+    whatever casing the SharePoint library displays.
     """
     return sorted(
         {
@@ -146,7 +133,7 @@ def require_auth(
     """Validate the bearer token and return its claims, or None when auth is off.
 
     Single entry point for authentication. FastAPI caches a dependency's result
-    per request, so a route that also reads the clearance validates the token
+    per request, so a route that also reads the sectors validates the token
     once.
     """
     if not settings.auth_enabled:

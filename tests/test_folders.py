@@ -3,9 +3,9 @@
 The corpus structure is the taxonomy — a folder is a facet the moment it is
 ingested, with nothing to configure. These tests cover the derivation itself,
 both ingest entry points (local tree and remote URI), and the query filter,
-which matches a folder name at any depth and is ANDed with the clearance filter.
+which matches a folder name at any depth and is ANDed with the sector filter.
 
-Query-side tests mirror test_rbac.py's in-memory Qdrant approach
+Query-side tests mirror test_sectors.py's in-memory Qdrant approach
 (QdrantClient(":memory:")), so no Docker is needed.
 """
 
@@ -253,7 +253,6 @@ def _point(source: str, payload_extra: dict) -> PointStruct:
             "chunk_index": 0,
             "file_type": ".md",
             "section": "",
-            "clearance_level": 0,
             "entity": "",
             "tags": [],
             **payload_extra,
@@ -344,15 +343,6 @@ def test_chunks_without_the_field_are_excluded_when_filtering(qdrant_client):
     assert "legado/antigo.md" not in _retrieve(qdrant_client, folders=["legado"])
 
 
-def test_clearance_still_wins_over_a_folder_filter(qdrant_client):
-    qdrant_client.upsert(
-        collection_name=COLLECTION,
-        points=[_point("rh/secreto.md", {"folders": ["rh"], "clearance_level": 5})],
-    )
-    assert "rh/secreto.md" not in _retrieve(qdrant_client, folders=["rh"])
-    assert "rh/secreto.md" in _retrieve(qdrant_client, folders=["rh"], user_clearance=5)
-
-
 def test_api_propagates_the_folders_filter():
     """The /query endpoint forwards folders to the pipeline."""
     from fastapi.testclient import TestClient
@@ -361,7 +351,7 @@ def test_api_propagates_the_folders_filter():
 
     captured: dict = {}
 
-    def _pipeline(query: str, settings=None, user_clearance: int = 0, **kwargs) -> dict:
+    def _pipeline(query: str, settings=None, **kwargs) -> dict:
         captured.update(kwargs)
         return {
             "answer": "test",

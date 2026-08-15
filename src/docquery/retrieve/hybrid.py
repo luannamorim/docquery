@@ -8,7 +8,6 @@ from qdrant_client.models import (
     MatchAny,
     MatchValue,
     Prefetch,
-    Range,
     ScoredPoint,
     SparseVector,
 )
@@ -23,7 +22,6 @@ def retrieve(
     query: str,
     client: QdrantClient,
     settings: Settings | None = None,
-    user_clearance: int = 0,
     sectors: list[str] | None = None,
     folders: list[str] | None = None,
     source: str | None = None,
@@ -31,16 +29,16 @@ def retrieve(
 ) -> list[ScoredPoint]:
     """Hybrid retrieval using dense + BM25 sparse vectors with RRF fusion.
 
-    Returns up to settings.retrieval_top_k scored points from Qdrant whose
-    clearance_level <= user_clearance, each with a .payload containing
-    "text", "source", "chunk_index", "file_type", "section", "clearance_level",
-    "folders", "entity", "tags".
+    Returns up to settings.retrieval_top_k scored points from Qdrant that the
+    caller's sectors allow, each with a .payload containing "text", "source",
+    "chunk_index", "file_type", "section", "sector", "folders", "entity",
+    "tags".
 
     sectors is the access compartment, imposed by the server rather than chosen
     by the caller: None skips the filter (no auth to enforce), [] returns
     nothing, and a list restricts to those sectors.
 
-    Optional scoping filters are ANDed with the clearance filter:
+    Optional scoping filters are ANDed with the sector filter:
     - folders: restrict to sources under any of these folder names, matched at
       any depth of the ingested tree (e.g. ["rh"])
     - source: restrict to a single source document path
@@ -68,10 +66,7 @@ def retrieve(
     dense_vec = embed_texts([query], settings=settings)[0].tolist()
     sparse_indices, sparse_values = sparse_vector(query)
 
-    # clearance is always enforced; scoping filters are additive (must/AND).
-    conditions: list[Condition] = [
-        FieldCondition(key="clearance_level", range=Range(lte=user_clearance))
-    ]
+    conditions: list[Condition] = []
     if sectors:
         conditions.append(FieldCondition(key="sector", match=MatchAny(any=sectors)))
     if folders:
@@ -84,7 +79,9 @@ def retrieve(
         conditions.append(FieldCondition(key="source", match=MatchValue(value=source)))
     if tags:
         conditions.append(FieldCondition(key="tags", match=MatchAny(any=tags)))
-    query_filter = Filter(must=conditions)
+    # None rather than Filter(must=[]): with auth off and no scoping filters
+    # there is nothing to constrain.
+    query_filter = Filter(must=conditions) if conditions else None
 
     result = client.query_points(
         collection_name=settings.qdrant_collection,

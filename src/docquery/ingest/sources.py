@@ -11,7 +11,7 @@ signature. Anything without a known scheme is a local path and never reaches
 this module.
 
 Each fetched file carries the URI it came from as its `source`, so remote
-documents flow through clearance/type policies, deduplication and orphan pruning
+documents flow through the sector/folder derivation, deduplication and pruning
 exactly like local ones.
 """
 

@@ -2,7 +2,7 @@
 
 Docling replaces only the parsing stage: it turns a binary document into a
 DoclingDocument, which this module maps onto the same Document/Chunk shapes the
-legacy loaders produce. Everything downstream — clearance classification,
+legacy loaders produce. Everything downstream — sector derivation,
 embedding, Qdrant payloads, retrieval — is untouched.
 
 The module is imported lazily by loader.py so the docling package is never

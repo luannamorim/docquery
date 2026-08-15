@@ -19,10 +19,10 @@ MetaValue = str | int | list[str]
 # "tags" becomes a list of strings.
 _DESCRIPTIVE_SCALARS = ("entity", "title", "effective_date")
 # Fields that gate access/scope are derived server-side at ingest time — from
-# settings policy (clearance) or from the document's path (folders) — and are
+# the document's path (folders, sector) — and are
 # intentionally NOT read from frontmatter (untrusted authors must not
 # self-label). They are logged and dropped if present.
-_ACCESS_FIELDS = ("clearance", "folders", "sector")
+_ACCESS_FIELDS = ("folders", "sector")
 
 
 @dataclass

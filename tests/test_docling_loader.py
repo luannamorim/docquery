@@ -132,12 +132,12 @@ def test_text_and_markdown_never_route_to_docling():
 
 def test_markdown_keeps_frontmatter_handling_with_docling_enabled(tmp_path):
     md = tmp_path / "note.md"
-    md.write_text("---\ntitle: Quarterly\nclearance: 9\n---\n\n# Body\n\ntext here")
+    md.write_text("---\ntitle: Quarterly\nsector: dir\n---\n\n# Body\n\ntext here")
     doc = load_document(md, Settings(docling_enabled=True))
     assert doc.dl_doc is None
     assert doc.metadata["title"] == "Quarterly"
-    # Author-supplied clearance is still refused; classification is server-side.
-    assert "clearance" not in doc.metadata
+    # An author-supplied sector is still refused; it is derived server-side.
+    assert "sector" not in doc.metadata
 
 
 # --- metadata mapping ---
@@ -234,16 +234,16 @@ def test_large_table_fragments_repeat_the_header():
         assert "Revenue" in fragment.text, "a table fragment lost the header row"
 
 
-# --- clearance (invariant I1: classification survives the new parser) ---
+# --- access metadata (invariant I1: it survives the new parser) ---
 
 
-def test_clearance_level_propagates_to_docling_chunks():
+def test_access_metadata_propagates_to_docling_chunks():
     chunks = chunk_document(
-        _as_document(_doc_with_pages(), clearance_level=5, folders=["policies"]),
+        _as_document(_doc_with_pages(), sector="policies", folders=["policies"]),
         Settings(docling_enabled=True),
     )
     assert chunks
-    assert all(c.metadata["clearance_level"] == 5 for c in chunks)
+    assert all(c.metadata["sector"] == "policies" for c in chunks)
     assert all(c.metadata["folders"] == ["policies"] for c in chunks)
 
 

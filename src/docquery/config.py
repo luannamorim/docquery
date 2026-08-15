@@ -98,30 +98,15 @@ class Settings(BaseSettings):
     # environment where any subprocess could read it.
     gdrive_service_account_file: Path | None = None
 
-    # Clearance / RBAC
-    # default_clearance_level: applied to documents that don't match
-    # clearance_policy. Default 0 (public) keeps the demo corpus accessible;
-    # production deployments should set this above max_clearance_level
-    # (fail-closed) and rely on clearance_policy for explicit access grants.
-    default_clearance_level: int = 0
-    max_clearance_level: int = 10
-    # Path-prefix → clearance mapping applied at ingest time. The first
-    # matching prefix wins; falls back to default_clearance_level on no match.
-    clearance_policy: list[tuple[str, int]] = []
-
     # Auth (Azure Entra ID)
     # Opt-in like docling_enabled: the demo corpus and quickstart run without a
-    # tenant. When False the API derives clearance from the X-User-Clearance
-    # header exactly as before; production deployments must set AUTH_ENABLED=true.
+    # tenant. When False there is no identity to enforce, so retrieval is
+    # unrestricted; production deployments must set AUTH_ENABLED=true.
     auth_enabled: bool = False
     # Not secrets — tenant and client (application) ID are public identifiers.
     # There is no client secret: the API validates tokens, it never requests them.
     azure_tenant_id: str = ""
     azure_client_id: str = ""
-    # App role → clearance level. JSON in .env: [["clearance.5", 5]]. The highest
-    # level among the token's roles wins; tokens with no mapped role fall back to
-    # default_clearance_level.
-    auth_role_clearance_map: list[tuple[str, int]] = []
     # App role → sector (the top-level folder it may read). JSON in .env:
     # [["sector.rh", "rh"]]. A token's sectors are the union of its mapped
     # roles; a token with no mapped role reads nothing. Folders everyone may

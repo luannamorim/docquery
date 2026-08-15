@@ -89,7 +89,6 @@ def generate_answer(
 def query_pipeline(
     query: str,
     settings: Settings | None = None,
-    user_clearance: int = 0,
     sectors: list[str] | None = None,
     folders: list[str] | None = None,
     source: str | None = None,
@@ -99,8 +98,8 @@ def query_pipeline(
 
     Returns {"answer": str, "sources": list[dict], "query": str, "model": str,
              "tokens_in": int, "tokens_out": int, "cost_usd": float}.
-    Only chunks with clearance_level <= user_clearance are retrieved. Optional
-    folders/source/tags scope retrieval (ANDed with the clearance filter).
+    Only chunks in the caller's sectors are retrieved. Optional
+    folders/source/tags scope retrieval further (ANDed with the sector filter).
     """
     settings = settings or get_settings()
     qdrant = QdrantClient(
@@ -126,16 +125,13 @@ def query_pipeline(
         query,
         qdrant,
         settings,
-        user_clearance=user_clearance,
         sectors=sectors,
         folders=folders,
         source=source,
         tags=tags,
     )
     contexts = rerank(query, points, settings)
-    contexts = expand_contexts(
-        contexts, qdrant, settings, user_clearance=user_clearance, sectors=sectors
-    )
+    contexts = expand_contexts(contexts, qdrant, settings, sectors=sectors)
     qid = hashlib.sha256(query.encode()).hexdigest()[:8]
     for source, reason in check_context(contexts):
         logger.warning(

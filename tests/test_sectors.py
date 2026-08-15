@@ -4,7 +4,7 @@ Compartments are what a numeric clearance level could not express — RH reads
 RH and Financeiro reads Financeiro, neither containing the other. The mutual
 exclusion below is the property the whole design exists for.
 
-In-memory Qdrant (QdrantClient(":memory:")), like test_rbac.py. Every point
+In-memory Qdrant (QdrantClient(":memory:")). Every point
 shares one sparse vector on purpose, so all four are always candidates and the
 filter is the only thing that can remove one: a source missing from a result is
 evidence the compartment excluded it, not that the query missed it.
@@ -63,7 +63,6 @@ def _point(source: str, sector: str, **payload_extra) -> PointStruct:
             "chunk_index": 0,
             "file_type": ".md",
             "section": "",
-            "clearance_level": 0,
             "sector": sector,
             "folders": [sector] if sector else [],
             "entity": "",
@@ -222,3 +221,56 @@ def test_expansion_with_no_sectors_returns_nothing(client):
         expand_contexts(seed, client, _settings(context_expansion_window=1), sectors=[])
         == []
     )
+
+
+# --- the demo header ------------------------------------------------------
+
+
+def _capturing_pipeline() -> tuple[dict, callable]:
+    captured: dict = {}
+
+    def _pipeline(query: str, settings=None, **kwargs) -> dict:
+        captured.update(kwargs)
+        return {
+            "answer": "test",
+            "sources": [],
+            "query": query,
+            "model": "gpt-4o-mini",
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cost_usd": 0.0,
+        }
+
+    return captured, _pipeline
+
+
+def _post(json_body, headers=None) -> dict:
+    from fastapi.testclient import TestClient
+
+    from docquery.api.app import app
+
+    captured, pipeline = _capturing_pipeline()
+    with patch("docquery.api.routes.query_pipeline", side_effect=pipeline):
+        response = TestClient(app).post("/query", json=json_body, headers=headers or {})
+    assert response.status_code == 200
+    return captured
+
+
+def test_header_restricts_the_query():
+    captured = _post({"query": "x"}, {"X-User-Sectors": "rh,juridico"})
+    assert captured["sectors"] == ["juridico", "rh"]
+
+
+def test_header_is_normalized_like_folder_names():
+    captured = _post({"query": "x"}, {"X-User-Sectors": " RH , rh "})
+    assert captured["sectors"] == ["rh"]
+
+
+def test_without_the_header_nothing_is_restricted():
+    """Auth off and no header: the pipeline is told not to filter at all."""
+    assert _post({"query": "x"})["sectors"] is None
+
+
+def test_a_blank_header_reads_nothing():
+    """Explicitly asking for no sector is not the same as not asking."""
+    assert _post({"query": "x"}, {"X-User-Sectors": " , "})["sectors"] == []

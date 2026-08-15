@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 
-from docquery.api.auth import require_auth, roles_to_clearance, roles_to_sectors
+from docquery.api.auth import require_auth, roles_to_sectors
 from docquery.api.guard import check_input
 from docquery.api.schemas import (
     HealthResponse,
@@ -36,39 +36,6 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 system_router = APIRouter()
 # Everything else requires a valid bearer token when auth_enabled is set.
 router = APIRouter(dependencies=[Depends(require_auth)])
-
-
-def get_user_clearance(
-    settings: SettingsDep,
-    claims: Annotated[dict | None, Depends(require_auth)],
-    x_user_clearance: Annotated[int, Header()] = 0,
-) -> int:
-    """Resolve the caller's clearance level.
-
-    With auth enabled it comes from the token's app roles and the
-    X-User-Clearance header is ignored — otherwise any caller could raise their
-    own clearance past what the token grants. With auth disabled the header
-    remains the demo path, bound-checked against settings.max_clearance_level.
-    """
-    if settings.auth_enabled:
-        clearance = roles_to_clearance((claims or {}).get("roles", []), settings)
-        if clearance > 0:
-            logger.info("Query authorized with clearance=%d", clearance)
-        return clearance
-
-    if not (0 <= x_user_clearance <= settings.max_clearance_level):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"X-User-Clearance must be between 0 and {settings.max_clearance_level}"
-            ),
-        )
-    if x_user_clearance > 0:
-        logger.info("Query authorized with clearance=%d", x_user_clearance)
-    return x_user_clearance
-
-
-ClearanceDep = Annotated[int, Depends(get_user_clearance)]
 
 
 def get_user_sectors(
@@ -183,7 +150,6 @@ def health() -> HealthResponse:
 def query(
     request: QueryRequest,
     settings: SettingsDep,
-    user_clearance: ClearanceDep,
     sectors: SectorsDep,
 ) -> QueryResponse:
     blocked, reason = check_input(request.query)
@@ -192,7 +158,6 @@ def query(
     result = query_pipeline(
         request.query,
         settings=settings,
-        user_clearance=user_clearance,
         sectors=sectors,
         folders=request.folders,
         source=request.source,

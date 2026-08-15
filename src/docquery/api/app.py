@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning(
             "AUTH_ENABLED is false — the API is running WITHOUT authentication "
-            "and X-User-Clearance is trusted as sent. Do not use in production."
+            "and retrieval is unrestricted. Do not use in production."
         )
     yield
 

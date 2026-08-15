@@ -51,11 +51,6 @@ def ensure_collection(client: QdrantClient, settings: Settings) -> None:
                 "sparse": SparseVectorParams(modifier=Modifier.IDF),
             },
         )
-        client.create_payload_index(
-            collection_name=settings.qdrant_collection,
-            field_name="clearance_level",
-            field_schema=PayloadSchemaType.INTEGER,
-        )
         # Filterable taxonomy/facets. sector is the access compartment; folders
         # is the search facet derived from the same tree; entity and tags are
         # descriptive. KEYWORD indexes also cover array values, so each folder
@@ -119,7 +114,6 @@ def ingest_chunks(
                 "page_number": int(chunk.metadata.get("page_number", 0)),
                 # text | table | figure — "text" for the legacy parsers.
                 "content_type": chunk.metadata.get("content_type", "text"),
-                "clearance_level": int(chunk.metadata.get("clearance_level", 0)),
                 "folders": chunk.metadata.get("folders", []),
                 # Access compartment. "" means no role can reach the chunk.
                 "sector": chunk.metadata.get("sector", ""),
@@ -209,25 +203,6 @@ def delete_chunks_for_sources(
         )
 
 
-def _apply_clearance_policy(docs: list, settings: Settings) -> None:
-    """Set clearance_level on each doc based on settings.clearance_policy.
-
-    Policy entries are (path_prefix, level); the first matching prefix wins.
-    Unmatched documents fall back to settings.default_clearance_level. The
-    frontmatter `clearance` field is intentionally ignored — classification is
-    server-side only so untrusted authors cannot self-label sensitive content.
-    """
-    for doc in docs:
-        source = str(doc.metadata.get("source", ""))
-        level = settings.default_clearance_level
-        for prefix, lvl in settings.clearance_policy:
-            if source.startswith(prefix):
-                level = lvl
-                break
-        doc.metadata["clearance_level"] = level
-        logger.info("Clearance applied: source=%s level=%d", source, level)
-
-
 def _place_document(doc, relative_path: str) -> None:
     """Derive the document's search facets and its access compartment.
 
@@ -275,8 +250,6 @@ def _ingest_documents(
     orphan_prefix means the caller ingested a single document and nothing else
     under it should be pruned.
     """
-    _apply_clearance_policy(docs, settings)
-
     all_chunks: list[Chunk] = []
     for doc in docs:
         all_chunks.extend(chunk_document(doc, settings=settings))

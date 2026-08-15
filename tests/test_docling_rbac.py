@@ -1,10 +1,10 @@
 """Authorization tests covering the Docling ingestion path.
 
-The clearance filter is the one thing that must never regress: an unauthorized
+The sector filter is the one thing that must never regress: an unauthorized
 chunk reaching the context is a data leak, not a quality problem. These tests
 drive a real in-memory Qdrant so the filters are actually evaluated, and each
 negative test is paired with a positive control proving the restricted chunk is
-reachable when clearance allows it — without the control, a broken query that
+reachable when the sector allows it — without the control, a broken query that
 returns nothing would make the negative assertion pass for the wrong reason.
 """
 
@@ -75,7 +75,7 @@ def _docling_chunks() -> list[Chunk]:
                 "chunk_index": 0,
                 "section": "Runbook > Overview",
                 "page_number": 1,
-                "clearance_level": 0,
+                "sector": "docs",
             },
         ),
         Chunk(
@@ -85,7 +85,7 @@ def _docling_chunks() -> list[Chunk]:
                 "chunk_index": 1,
                 "section": "Runbook > Rollback",
                 "page_number": 2,
-                "clearance_level": 5,
+                "sector": "restrito",
             },
         ),
         Chunk(
@@ -95,7 +95,7 @@ def _docling_chunks() -> list[Chunk]:
                 "chunk_index": 2,
                 "section": "Runbook > Verification",
                 "page_number": 2,
-                "clearance_level": 0,
+                "sector": "docs",
             },
         ),
     ]
@@ -141,7 +141,7 @@ def test_docling_payload_carries_all_required_metadata(client):
         "title",
         "page_number",
         "content_type",
-        "clearance_level",
+        "sector",
         "folders",
         "entity",
         "tags",
@@ -153,15 +153,15 @@ def test_docling_payload_carries_all_required_metadata(client):
     assert payload["source"] == "docs/runbook.pdf"
 
 
-def test_clearance_survives_ingestion_into_the_payload(client):
-    assert _payload_for(client, SECRET_TEXT)["clearance_level"] == 5
-    assert _payload_for(client, PUBLIC_INTRO)["clearance_level"] == 0
+def test_the_sector_survives_ingestion_into_the_payload(client):
+    assert _payload_for(client, SECRET_TEXT)["sector"] == "restrito"
+    assert _payload_for(client, PUBLIC_INTRO)["sector"] == "docs"
 
 
 # --- I: retrieval must not return a restricted chunk ---
 
 
-def _retrieve(client, query: str, clearance: int):
+def _retrieve(client, query: str, sectors):
     settings = _settings()
     with (
         patch("docquery.retrieve.hybrid.embed_texts", side_effect=_fake_dense),
@@ -170,24 +170,24 @@ def _retrieve(client, query: str, clearance: int):
             return_value=([4, 5, 6], [0.9, 0.8, 0.7]),
         ),
     ):
-        return retrieve(query, client, settings, user_clearance=clearance)
+        return retrieve(query, client, settings, sectors=sectors)
 
 
 def test_retrieval_hides_restricted_chunk_from_unauthorized_user(client):
     # The query is deliberately the restricted chunk's own text, so ranking
     # favours it as strongly as possible; only the filter can keep it out.
-    points = _retrieve(client, SECRET_TEXT, clearance=0)
+    points = _retrieve(client, SECRET_TEXT, sectors=["docs"])
     texts = {(p.payload or {}).get("text") for p in points}
     assert SECRET_TEXT not in texts
     assert PUBLIC_INTRO in texts, "public chunks should still be retrievable"
 
 
 def test_retrieval_returns_restricted_chunk_for_authorized_user(client):
-    points = _retrieve(client, SECRET_TEXT, clearance=5)
+    points = _retrieve(client, SECRET_TEXT, sectors=["restrito"])
     texts = {(p.payload or {}).get("text") for p in points}
     assert SECRET_TEXT in texts, (
         "positive control failed: the restricted chunk is unreachable even with "
-        "clearance, so the negative test above proves nothing"
+        "its sector, so the negative test above proves nothing"
     )
 
 
@@ -198,7 +198,7 @@ def test_retrieval_returns_restricted_chunk_for_authorized_user(client):
 # it into the LLM context even though retrieval correctly excluded it.
 
 
-def _expand(client, clearance: int) -> list[dict]:
+def _expand(client, sectors) -> list[dict]:
     settings = _settings(context_expansion_window=1)
     seed = [
         {
@@ -210,20 +210,20 @@ def _expand(client, clearance: int) -> list[dict]:
             "folders": ["docs"],
         }
     ]
-    return expand_contexts(seed, client, settings, user_clearance=clearance)
+    return expand_contexts(seed, client, settings, sectors=sectors)
 
 
 def test_expand_does_not_leak_restricted_neighbour(client):
-    expanded = _expand(client, clearance=0)
+    expanded = _expand(client, sectors=["docs"])
     merged = expanded[0]["text"]
     assert SECRET_TEXT not in merged, (
-        "context expansion leaked a chunk above the user's clearance"
+        "context expansion leaked a chunk from another compartment"
     )
     assert PUBLIC_INTRO in merged
 
 
 def test_expand_includes_restricted_neighbour_for_authorized_user(client):
-    expanded = _expand(client, clearance=5)
+    expanded = _expand(client, sectors=["docs", "restrito"])
     merged = expanded[0]["text"]
     assert SECRET_TEXT in merged, (
         "positive control failed: the restricted neighbour is never returned by "
@@ -231,10 +231,10 @@ def test_expand_includes_restricted_neighbour_for_authorized_user(client):
     )
 
 
-def test_expand_filter_declares_the_clearance_condition(client):
+def test_expand_filter_declares_the_sector_condition(client):
     """Guard the filter itself, not just its effect.
 
-    Somebody removing the clearance condition while keeping expansion working
+    Somebody removing the sector condition while keeping expansion working
     would still be caught by the leak test above, but this makes the intent
     explicit at the call site.
     """
@@ -260,15 +260,13 @@ def test_expand_filter_declares_the_clearance_condition(client):
             ],
             client,
             settings,
-            user_clearance=0,
+            sectors=["docs"],
         )
 
     conditions = captured["scroll_filter"].must
-    clearance_conditions = [
-        c for c in conditions if getattr(c, "key", None) == "clearance_level"
-    ]
-    assert clearance_conditions, "expansion issued a scroll with no clearance filter"
-    assert clearance_conditions[0].range.lte == 0
+    sector_conditions = [c for c in conditions if getattr(c, "key", None) == "sector"]
+    assert sector_conditions, "expansion issued a scroll with no sector filter"
+    assert sector_conditions[0].match.any == ["docs"]
 
 
 # --- K: documents indexed before this change stay searchable ---
@@ -284,7 +282,7 @@ def test_legacy_points_without_new_fields_remain_searchable(client):
                 "file_type": ".md",
                 "chunk_index": 0,
                 "section": "Legacy",
-                "clearance_level": 0,
+                "sector": "docs",
             },
         )
     ]
@@ -292,7 +290,9 @@ def test_legacy_points_without_new_fields_remain_searchable(client):
     with patch("docquery.ingest.pipeline.embed_texts", side_effect=_fake_dense):
         ingest_chunks(legacy, client, settings)
 
-    points = _retrieve(client, "Legacy chunk indexed before the Docling change.", 0)
+    points = _retrieve(
+        client, "Legacy chunk indexed before the Docling change.", ["docs"]
+    )
     texts = {(p.payload or {}).get("text") for p in points}
     assert "Legacy chunk indexed before the Docling change." in texts
 
@@ -309,6 +309,6 @@ def test_legacy_points_without_new_fields_remain_searchable(client):
         ],
         client,
         _settings(context_expansion_window=1),
-        user_clearance=0,
+        sectors=["docs"],
     )
     assert "Legacy chunk indexed before the Docling change." in expanded[0]["text"]

@@ -1,4 +1,4 @@
-"""Entra ID token validation and role→clearance mapping.
+"""Entra ID token validation and role→sector mapping.
 
 Tokens are minted locally with an RSA keypair and `auth._get_signing_key` is
 monkeypatched to return the matching public key, so the suite exercises the real
@@ -31,7 +31,11 @@ def _auth_settings(**overrides) -> Settings:
         "auth_enabled": True,
         "azure_tenant_id": TENANT,
         "azure_client_id": CLIENT,
-        "auth_role_clearance_map": [("clearance.5", 5), ("clearance.10", 10)],
+        "auth_role_sector_map": [
+            ("sector.rh", "rh"),
+            ("sector.juridico", "juridico"),
+            ("sector.institucional", "institucional"),
+        ],
     }
     return Settings(**{**fields, **overrides})
 
@@ -110,10 +114,10 @@ def test_auth_enabled_accepts_complete_config() -> None:
 
 
 def test_valid_token_returns_claims(private_key, signing_key) -> None:
-    token = make_token(private_key, roles=["clearance.5"])
+    token = make_token(private_key, roles=["sector.rh"])
     claims = auth.validate_token(token, _auth_settings())
     assert claims["sub"] == "user-1"
-    assert claims["roles"] == ["clearance.5"]
+    assert claims["roles"] == ["sector.rh"]
 
 
 def test_app_id_uri_audience_is_accepted(private_key, signing_key) -> None:
@@ -221,78 +225,38 @@ def test_expiry_within_leeway_is_accepted(private_key, signing_key) -> None:
     assert claims["sub"] == "user-1"
 
 
-# --- roles_to_clearance ---------------------------------------------------
-
-
-def test_mapped_role_sets_clearance() -> None:
-    assert auth.roles_to_clearance(["clearance.5"], _auth_settings()) == 5
-
-
-def test_highest_mapped_role_wins() -> None:
-    roles = ["clearance.5", "clearance.10"]
-    assert auth.roles_to_clearance(roles, _auth_settings()) == 10
-
-
-def test_unmapped_roles_fall_back_to_default() -> None:
-    settings = _auth_settings(default_clearance_level=1)
-    assert auth.roles_to_clearance(["Reader.All"], settings) == 1
-
-
-def test_missing_roles_claim_falls_back_to_default() -> None:
-    settings = _auth_settings(default_clearance_level=2)
-    assert auth.roles_to_clearance([], settings) == 2
-
-
-def test_clearance_is_capped_at_max() -> None:
-    settings = _auth_settings(
-        auth_role_clearance_map=[("clearance.99", 99)], max_clearance_level=10
-    )
-    assert auth.roles_to_clearance(["clearance.99"], settings) == 10
-
-
 # --- roles_to_sectors -----------------------------------------------------
 
 
-def _sector_settings(**overrides) -> Settings:
-    fields = {
-        "auth_role_sector_map": [
-            ("sector.rh", "rh"),
-            ("sector.juridico", "juridico"),
-            ("sector.institucional", "institucional"),
-        ]
-    }
-    return _auth_settings(**{**fields, **overrides})
-
-
 def test_mapped_role_grants_its_sector() -> None:
-    assert auth.roles_to_sectors(["sector.rh"], _sector_settings()) == ["rh"]
+    assert auth.roles_to_sectors(["sector.rh"], _auth_settings()) == ["rh"]
 
 
 def test_sectors_are_the_union_of_the_mapped_roles() -> None:
     roles = ["sector.juridico", "sector.rh"]
-    assert auth.roles_to_sectors(roles, _sector_settings()) == ["juridico", "rh"]
+    assert auth.roles_to_sectors(roles, _auth_settings()) == ["juridico", "rh"]
 
 
 def test_two_roles_onto_one_sector_do_not_duplicate_it() -> None:
     """A shared folder is granted by handing the same sector to several roles."""
-    settings = _sector_settings(
+    settings = _auth_settings(
         auth_role_sector_map=[("sector.rh", "rh"), ("rh.legacy", "rh")]
     )
     assert auth.roles_to_sectors(["sector.rh", "rh.legacy"], settings) == ["rh"]
 
 
 def test_sector_names_are_normalized_like_folder_names() -> None:
-    settings = _sector_settings(auth_role_sector_map=[("sector.rh", "  RH  ")])
+    settings = _auth_settings(auth_role_sector_map=[("sector.rh", "  RH  ")])
     assert auth.roles_to_sectors(["sector.rh"], settings) == ["rh"]
 
 
 def test_unmapped_role_reads_nothing() -> None:
-    """No floor to fall back to — unlike a clearance level, [] means nothing."""
-    assert auth.roles_to_sectors(["Reader.All"], _sector_settings()) == []
+    """No floor to fall back to — unlike a level, [] really means nothing."""
+    assert auth.roles_to_sectors(["Reader.All"], _auth_settings()) == []
 
 
 def test_missing_roles_claim_reads_nothing() -> None:
-    assert auth.roles_to_sectors([], _sector_settings()) == []
+    assert auth.roles_to_sectors([], _auth_settings()) == []
 
 
 # --- Endpoint protection --------------------------------------------------
@@ -315,8 +279,8 @@ def auth_client(monkeypatch, private_key):
 def _capturing_pipeline() -> tuple[dict, callable]:
     captured: dict = {}
 
-    def _pipeline(query: str, settings=None, user_clearance: int = 0, **kwargs) -> dict:
-        captured["user_clearance"] = user_clearance
+    def _pipeline(query: str, settings=None, **kwargs) -> dict:
+        captured.update(kwargs)
         return {
             "answer": "test",
             "sources": [],
@@ -327,8 +291,8 @@ def _capturing_pipeline() -> tuple[dict, callable]:
     return captured, _pipeline
 
 
-def test_query_with_valid_token_uses_role_clearance(auth_client, private_key) -> None:
-    token = make_token(private_key, roles=["clearance.5"])
+def test_query_with_valid_token_uses_role_sectors(auth_client, private_key) -> None:
+    token = make_token(private_key, roles=["sector.rh"])
     captured, pipeline = _capturing_pipeline()
     with patch("docquery.api.routes.query_pipeline", side_effect=pipeline):
         response = auth_client.post(
@@ -337,7 +301,7 @@ def test_query_with_valid_token_uses_role_clearance(auth_client, private_key) ->
             headers={"Authorization": f"Bearer {token}"},
         )
     assert response.status_code == 200
-    assert captured["user_clearance"] == 5
+    assert captured["sectors"] == ["rh"]
 
 
 def test_query_without_token_is_unauthorized(auth_client) -> None:
@@ -372,9 +336,9 @@ def test_ingest_status_without_token_is_unauthorized(auth_client) -> None:
     assert response.status_code == 401
 
 
-def test_clearance_header_is_ignored_when_auth_is_on(auth_client, private_key) -> None:
-    """A caller must not raise their own clearance past what the token grants."""
-    token = make_token(private_key, roles=["clearance.5"])
+def test_sector_header_is_ignored_when_auth_is_on(auth_client, private_key) -> None:
+    """A caller must not widen their own reach past what the token grants."""
+    token = make_token(private_key, roles=["sector.rh"])
     captured, pipeline = _capturing_pipeline()
     with patch("docquery.api.routes.query_pipeline", side_effect=pipeline):
         response = auth_client.post(
@@ -382,14 +346,14 @@ def test_clearance_header_is_ignored_when_auth_is_on(auth_client, private_key) -
             json={"query": "what is hybrid search?"},
             headers={
                 "Authorization": f"Bearer {token}",
-                "X-User-Clearance": "10",
+                "X-User-Sectors": "juridico,institucional",
             },
         )
     assert response.status_code == 200
-    assert captured["user_clearance"] == 5
+    assert captured["sectors"] == ["rh"]
 
 
-def test_token_without_roles_gets_default_clearance(auth_client, private_key) -> None:
+def test_token_without_roles_reads_nothing(auth_client, private_key) -> None:
     token = make_token(private_key)
     captured, pipeline = _capturing_pipeline()
     with patch("docquery.api.routes.query_pipeline", side_effect=pipeline):
@@ -399,7 +363,7 @@ def test_token_without_roles_gets_default_clearance(auth_client, private_key) ->
             headers={"Authorization": f"Bearer {token}"},
         )
     assert response.status_code == 200
-    assert captured["user_clearance"] == 0
+    assert captured["sectors"] == []
 
 
 def test_startup_survives_an_unreachable_jwks_endpoint(monkeypatch) -> None:
@@ -423,7 +387,7 @@ def test_startup_survives_an_unreachable_jwks_endpoint(monkeypatch) -> None:
 def test_expired_token_is_unauthorized_at_the_endpoint(
     auth_client, private_key
 ) -> None:
-    token = make_token(private_key, roles=["clearance.5"], expires_in=-3600)
+    token = make_token(private_key, roles=["sector.rh"], expires_in=-3600)
     response = auth_client.post(
         "/query",
         json={"query": "anything"},
