@@ -135,7 +135,13 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+# Catch-all with a carve-out: only .env.example is meant to be committed, and
+# a variant nobody anticipated (.env.homolog, .env.cliente) must not be
+# publishable just because it was not listed. gitignore takes the negation
+# that the permission syntax cannot.
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
