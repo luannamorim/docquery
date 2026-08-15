@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -146,6 +146,22 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1024
     llm_price_input_per_1m: float = 0.15
     llm_price_output_per_1m: float = 0.60
+
+    @field_validator(
+        "docling_artifacts_path", "gdrive_service_account_file", mode="before"
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        """Treat an empty env var as "not configured" for optional paths.
+
+        Path("") is Path("."), which is truthy, so the guards that check these
+        fields would pass and the failure would surface much later as an
+        IsADirectoryError on ".". Empty strings for str and SecretStr fields are
+        already falsy, so only paths need this.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def _check_auth_config(self) -> "Settings":

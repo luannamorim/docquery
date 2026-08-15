@@ -424,6 +424,18 @@ def test_gdrive_requires_a_service_account_file(tmp_path) -> None:
         sources.fetch(GD_URI, tmp_path, Settings())
 
 
+def test_a_blank_credential_path_counts_as_missing(tmp_path) -> None:
+    """GDRIVE_SERVICE_ACCOUNT_FILE= is how .env.example ships it.
+
+    Path("") is Path("."), which is truthy, so without normalization the
+    credentials guard passes and the run dies on IsADirectoryError instead.
+    """
+    settings = Settings(gdrive_service_account_file="")
+    assert settings.gdrive_service_account_file is None
+    with pytest.raises(sources.SourceError, match="credentials"):
+        sources.fetch(GD_URI, tmp_path, settings)
+
+
 def test_gdrive_rejects_a_path_after_the_folder_id(tmp_path) -> None:
     with pytest.raises(sources.SourceError, match="folder id"):
         sources.fetch(
