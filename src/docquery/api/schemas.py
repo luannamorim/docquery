@@ -17,7 +17,7 @@ class QueryRequest(BaseModel):
                 {"query": "How does hybrid search work?"},
                 {
                     "query": "payment terms",
-                    "doc_types": ["contract"],
+                    "folders": ["contratos"],
                     "tags": ["supply"],
                 },
             ]
@@ -25,10 +25,6 @@ class QueryRequest(BaseModel):
     )
 
     query: str = Field(min_length=1)
-    doc_types: list[str] | None = Field(
-        default=None,
-        description="Restrict retrieval to these document types, e.g. ['contract']",
-    )
     folders: list[str] | None = Field(
         default=None,
         description=(
@@ -55,10 +51,6 @@ class Source(BaseModel):
     section: str = Field(
         default="",
         description="Nearest header/section breadcrumb, empty when not detected",
-    )
-    doc_type: str = Field(
-        default="",
-        description="Document type of the source (e.g. contract, policy)",
     )
     folders: list[str] = Field(
         default_factory=list,

@@ -239,12 +239,12 @@ def test_large_table_fragments_repeat_the_header():
 
 def test_clearance_level_propagates_to_docling_chunks():
     chunks = chunk_document(
-        _as_document(_doc_with_pages(), clearance_level=5, doc_type="policy"),
+        _as_document(_doc_with_pages(), clearance_level=5, folders=["policies"]),
         Settings(docling_enabled=True),
     )
     assert chunks
     assert all(c.metadata["clearance_level"] == 5 for c in chunks)
-    assert all(c.metadata["doc_type"] == "policy" for c in chunks)
+    assert all(c.metadata["folders"] == ["policies"] for c in chunks)
 
 
 # --- failure handling ---

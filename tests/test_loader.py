@@ -115,14 +115,15 @@ def test_frontmatter_descriptive_fields_extracted(tmp_path: Path) -> None:
 
 
 def test_frontmatter_access_fields_are_ignored(tmp_path: Path) -> None:
-    """clearance and doc_type must never be self-labeled via frontmatter."""
+    """clearance and folders must never be self-labeled via frontmatter."""
     f = tmp_path / "secret.md"
     f.write_text(
-        "---\nclearance: 9\ndoc_type: top_secret\nentity: Acme\n---\n# Doc\n\nBody.\n"
+        "---\nclearance: 9\nfolders: [diretoria]\nentity: Acme\n---\n# Doc\n\nBody.\n"
     )
     doc = load_document(f)
     assert "clearance" not in doc.metadata
-    assert "doc_type" not in doc.metadata  # set server-side at ingest, not by author
+    # Derived server-side from the document's path, not claimed by its author.
+    assert "folders" not in doc.metadata
     assert doc.metadata["entity"] == "Acme"
 
 

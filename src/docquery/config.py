@@ -109,14 +109,6 @@ class Settings(BaseSettings):
     # matching prefix wins; falls back to default_clearance_level on no match.
     clearance_policy: list[tuple[str, int]] = []
 
-    # Document type taxonomy
-    # doc_type is classified server-side by path prefix, with the same trust
-    # model as clearance_policy: authors cannot self-label via frontmatter
-    # because doc_type can gate retrieval scope. First matching prefix wins;
-    # falls back to default_doc_type on no match.
-    default_doc_type: str = "document"
-    type_policy: list[tuple[str, str]] = []
-
     # Auth (Azure Entra ID)
     # Opt-in like docling_enabled: the demo corpus and quickstart run without a
     # tenant. When False the API derives clearance from the X-User-Clearance

@@ -56,10 +56,10 @@ def ensure_collection(client: QdrantClient, settings: Settings) -> None:
             field_name="clearance_level",
             field_schema=PayloadSchemaType.INTEGER,
         )
-        # Filterable taxonomy/facets (doc_type and folders are server-side
-        # derived; entity and tags are descriptive). KEYWORD indexes also cover
-        # array values, so each folder segment is matchable on its own.
-        for field_name in ("doc_type", "folders", "entity", "tags"):
+        # Filterable taxonomy/facets (folders is derived from the ingested tree;
+        # entity and tags are descriptive). KEYWORD indexes also cover array
+        # values, so each folder segment is matchable on its own.
+        for field_name in ("folders", "entity", "tags"):
             client.create_payload_index(
                 collection_name=settings.qdrant_collection,
                 field_name=field_name,
@@ -119,7 +119,6 @@ def ingest_chunks(
                 # text | table | figure — "text" for the legacy parsers.
                 "content_type": chunk.metadata.get("content_type", "text"),
                 "clearance_level": int(chunk.metadata.get("clearance_level", 0)),
-                "doc_type": chunk.metadata.get("doc_type", ""),
                 "folders": chunk.metadata.get("folders", []),
                 "entity": chunk.metadata.get("entity", ""),
                 "tags": chunk.metadata.get("tags", []),
@@ -226,25 +225,6 @@ def _apply_clearance_policy(docs: list, settings: Settings) -> None:
         logger.info("Clearance applied: source=%s level=%d", source, level)
 
 
-def _apply_type_policy(docs: list, settings: Settings) -> None:
-    """Set doc_type on each doc based on settings.type_policy.
-
-    Policy entries are (path_prefix, doc_type); the first matching prefix wins.
-    Unmatched documents fall back to settings.default_doc_type. As with
-    clearance, the type is classified server-side by path so untrusted authors
-    cannot self-label content that gates retrieval scope.
-    """
-    for doc in docs:
-        source = str(doc.metadata.get("source", ""))
-        doc_type = settings.default_doc_type
-        for prefix, name in settings.type_policy:
-            if source.startswith(prefix):
-                doc_type = name
-                break
-        doc.metadata["doc_type"] = doc_type
-        logger.info("Doc type applied: source=%s doc_type=%s", source, doc_type)
-
-
 def _qdrant_client(settings: Settings) -> QdrantClient:
     return QdrantClient(
         host=settings.qdrant_host,
@@ -276,7 +256,6 @@ def _ingest_documents(
     under it should be pruned.
     """
     _apply_clearance_policy(docs, settings)
-    _apply_type_policy(docs, settings)
 
     all_chunks: list[Chunk] = []
     for doc in docs:

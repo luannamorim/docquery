@@ -63,7 +63,7 @@ def _docling_chunks() -> list[Chunk]:
     common = {
         "source": "docs/runbook.pdf",
         "file_type": ".pdf",
-        "doc_type": "manual",
+        "folders": ["docs"],
         "title": "Deployment Runbook",
         "content_type": "text",
     }
@@ -142,7 +142,7 @@ def test_docling_payload_carries_all_required_metadata(client):
         "page_number",
         "content_type",
         "clearance_level",
-        "doc_type",
+        "folders",
         "entity",
         "tags",
     ):
@@ -207,7 +207,7 @@ def _expand(client, clearance: int) -> list[dict]:
             "chunk_index": 0,
             "score": 1.0,
             "section": "Runbook > Overview",
-            "doc_type": "manual",
+            "folders": ["docs"],
         }
     ]
     return expand_contexts(seed, client, settings, user_clearance=clearance)
@@ -255,7 +255,7 @@ def test_expand_filter_declares_the_clearance_condition(client):
                     "chunk_index": 0,
                     "score": 1.0,
                     "section": "",
-                    "doc_type": "manual",
+                    "folders": ["docs"],
                 }
             ],
             client,
@@ -304,7 +304,7 @@ def test_legacy_points_without_new_fields_remain_searchable(client):
                 "chunk_index": 0,
                 "score": 1.0,
                 "section": "Legacy",
-                "doc_type": "",
+                "folders": [],
             }
         ],
         client,

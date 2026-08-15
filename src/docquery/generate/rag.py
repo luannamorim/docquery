@@ -64,7 +64,6 @@ def generate_answer(
             "score": ctx["score"],
             "text": ctx["text"],
             "section": ctx.get("section", ""),
-            "doc_type": ctx.get("doc_type", ""),
             "folders": ctx.get("folders", []),
         }
         for i, ctx in enumerate(contexts)
@@ -91,7 +90,6 @@ def query_pipeline(
     query: str,
     settings: Settings | None = None,
     user_clearance: int = 0,
-    doc_types: list[str] | None = None,
     folders: list[str] | None = None,
     source: str | None = None,
     tags: list[str] | None = None,
@@ -101,8 +99,7 @@ def query_pipeline(
     Returns {"answer": str, "sources": list[dict], "query": str, "model": str,
              "tokens_in": int, "tokens_out": int, "cost_usd": float}.
     Only chunks with clearance_level <= user_clearance are retrieved. Optional
-    doc_types/folders/source/tags scope retrieval (ANDed with the clearance
-    filter).
+    folders/source/tags scope retrieval (ANDed with the clearance filter).
     """
     settings = settings or get_settings()
     qdrant = QdrantClient(
@@ -129,7 +126,6 @@ def query_pipeline(
         qdrant,
         settings,
         user_clearance=user_clearance,
-        doc_types=doc_types,
         folders=folders,
         source=source,
         tags=tags,

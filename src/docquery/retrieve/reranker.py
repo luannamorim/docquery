@@ -19,7 +19,6 @@ def _point_to_context(point: ScoredPoint) -> dict:
         "chunk_index": payload.get("chunk_index", 0),
         "score": float(point.score),
         "section": payload.get("section", ""),
-        "doc_type": payload.get("doc_type", ""),
         "folders": payload.get("folders", []),
     }
 
@@ -61,7 +60,6 @@ def rerank(
             "chunk_index": payload.get("chunk_index", 0),
             "score": float(r["score"]),
             "section": payload.get("section", ""),
-            "doc_type": payload.get("doc_type", ""),
             "folders": payload.get("folders", []),
         }
         for r in ranked

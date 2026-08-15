@@ -24,7 +24,6 @@ def retrieve(
     client: QdrantClient,
     settings: Settings | None = None,
     user_clearance: int = 0,
-    doc_types: list[str] | None = None,
     folders: list[str] | None = None,
     source: str | None = None,
     tags: list[str] | None = None,
@@ -34,10 +33,9 @@ def retrieve(
     Returns up to settings.retrieval_top_k scored points from Qdrant whose
     clearance_level <= user_clearance, each with a .payload containing
     "text", "source", "chunk_index", "file_type", "section", "clearance_level",
-    "doc_type", "entity", "tags".
+    "folders", "entity", "tags".
 
     Optional scoping filters are ANDed with the clearance filter:
-    - doc_types: restrict to these document types (e.g. ["contract"])
     - folders: restrict to sources under any of these folder names, matched at
       any depth of the ingested tree (e.g. ["rh"])
     - source: restrict to a single source document path
@@ -56,8 +54,6 @@ def retrieve(
     conditions: list[Condition] = [
         FieldCondition(key="clearance_level", range=Range(lte=user_clearance))
     ]
-    if doc_types:
-        conditions.append(FieldCondition(key="doc_type", match=MatchAny(any=doc_types)))
     if folders:
         # Normalized here, the single choke point every caller passes through, so
         # a filter matches the folder name as the user sees it regardless of case.

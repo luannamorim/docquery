@@ -22,7 +22,7 @@ _DESCRIPTIVE_SCALARS = ("entity", "title", "effective_date")
 # settings policy (clearance) or from the document's path (folders) — and are
 # intentionally NOT read from frontmatter (untrusted authors must not
 # self-label). They are logged and dropped if present.
-_ACCESS_FIELDS = ("clearance", "doc_type", "folders")
+_ACCESS_FIELDS = ("clearance", "folders")
 
 
 @dataclass
