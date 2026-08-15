@@ -27,7 +27,7 @@ from qdrant_client.models import (
 )
 
 from docquery.config import Settings
-from docquery.folders import folder_segments, normalize_segment
+from docquery.folders import folder_segments, normalize_segment, sector_of
 from docquery.ingest import pipeline, sources
 from docquery.retrieve.hybrid import retrieve
 
@@ -88,6 +88,28 @@ def test_spaces_and_accents_survive_normalization():
     assert folder_segments("Recursos Humanos/a.md") == ["recursos humanos"]
 
 
+# --- sector (access compartment) ------------------------------------------
+
+
+def test_sector_is_the_top_level_folder():
+    assert sector_of(folder_segments("rh/beneficios/plano.pdf")) == "rh"
+
+
+def test_sector_ignores_nested_segments():
+    """The security-critical case: a folder named after another sector.
+
+    `folders` matches at any depth, so this document is findable under "rh" —
+    but it belongs to financeiro, and only financeiro may read it.
+    """
+    segments = folder_segments("financeiro/rh/nota.pdf")
+    assert segments == ["financeiro", "rh"]
+    assert sector_of(segments) == "financeiro"
+
+
+def test_a_file_at_the_root_has_no_sector():
+    assert sector_of(folder_segments("aviso.md")) == ""
+
+
 # --- local ingest ---------------------------------------------------------
 
 
@@ -129,6 +151,22 @@ def test_local_folders_are_relative_to_the_ingested_root(captured_ingest, tmp_pa
     }
 
 
+def test_local_ingest_labels_each_document_with_its_sector(captured_ingest, tmp_path):
+    (tmp_path / "rh" / "beneficios").mkdir(parents=True)
+    (tmp_path / "rh" / "beneficios" / "plano.md").write_text("# plano")
+    (tmp_path / "financeiro").mkdir()
+    (tmp_path / "financeiro" / "notas.md").write_text("# notas")
+    (tmp_path / "raiz.md").write_text("# raiz")
+
+    pipeline.ingest_path(tmp_path, settings=_settings())
+
+    by_name = {
+        Path(str(d.metadata["source"])).name: d.metadata["sector"]
+        for d in captured_ingest["docs"]
+    }
+    assert by_name == {"plano.md": "rh", "notas.md": "financeiro", "raiz.md": ""}
+
+
 def test_ingesting_a_single_file_yields_no_folders(captured_ingest, tmp_path):
     """A lone file is its own root — there is no tree to derive facets from."""
     target = tmp_path / "rh" / "ferias.md"
@@ -156,6 +194,16 @@ def test_remote_folders_come_from_the_uri(captured_ingest, monkeypatch, tmp_path
     pipeline.ingest_source(SP_URI, settings=_sharepoint_settings())
 
     assert captured_ingest["docs"][0].metadata["folders"] == ["rh", "beneficios"]
+
+
+def test_remote_ingest_labels_the_sector_from_the_uri(
+    captured_ingest, monkeypatch, tmp_path
+):
+    _fetch_returning(monkeypatch, tmp_path, f"{SP_URI}/RH/Beneficios/plano.md")
+
+    pipeline.ingest_source(SP_URI, settings=_sharepoint_settings())
+
+    assert captured_ingest["docs"][0].metadata["sector"] == "rh"
 
 
 def test_remote_file_at_the_library_root_has_no_folders(

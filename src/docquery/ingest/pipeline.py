@@ -20,7 +20,7 @@ from qdrant_client.models import (
 )
 
 from docquery.config import Settings, get_settings
-from docquery.folders import folder_segments
+from docquery.folders import folder_segments, sector_of
 from docquery.ingest.chunker import Chunk, chunk_document
 from docquery.ingest.loader import (
     is_skippable_load_error,
@@ -56,10 +56,11 @@ def ensure_collection(client: QdrantClient, settings: Settings) -> None:
             field_name="clearance_level",
             field_schema=PayloadSchemaType.INTEGER,
         )
-        # Filterable taxonomy/facets (folders is derived from the ingested tree;
-        # entity and tags are descriptive). KEYWORD indexes also cover array
-        # values, so each folder segment is matchable on its own.
-        for field_name in ("folders", "entity", "tags"):
+        # Filterable taxonomy/facets. sector is the access compartment; folders
+        # is the search facet derived from the same tree; entity and tags are
+        # descriptive. KEYWORD indexes also cover array values, so each folder
+        # segment is matchable on its own.
+        for field_name in ("sector", "folders", "entity", "tags"):
             client.create_payload_index(
                 collection_name=settings.qdrant_collection,
                 field_name=field_name,
@@ -120,6 +121,8 @@ def ingest_chunks(
                 "content_type": chunk.metadata.get("content_type", "text"),
                 "clearance_level": int(chunk.metadata.get("clearance_level", 0)),
                 "folders": chunk.metadata.get("folders", []),
+                # Access compartment. "" means no role can reach the chunk.
+                "sector": chunk.metadata.get("sector", ""),
                 "entity": chunk.metadata.get("entity", ""),
                 "tags": chunk.metadata.get("tags", []),
             },
@@ -225,6 +228,23 @@ def _apply_clearance_policy(docs: list, settings: Settings) -> None:
         logger.info("Clearance applied: source=%s level=%d", source, level)
 
 
+def _place_document(doc, relative_path: str) -> None:
+    """Derive the document's search facets and its access compartment.
+
+    Both come from the same path relative to the ingested root, so they are set
+    together at the entry points that know that root.
+    """
+    segments = folder_segments(relative_path)
+    doc.metadata["folders"] = segments
+    doc.metadata["sector"] = sector_of(segments)
+    if not doc.metadata["sector"]:
+        logger.warning(
+            "No sector for %s: a document at the ingest root belongs to no "
+            "compartment, so no role can reach it",
+            doc.metadata.get("source", ""),
+        )
+
+
 def _qdrant_client(settings: Settings) -> QdrantClient:
     return QdrantClient(
         host=settings.qdrant_host,
@@ -289,13 +309,13 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
         docs = load_directory(path, settings=settings)
         for doc in docs:
             relative = Path(str(doc.metadata["source"])).relative_to(path)
-            doc.metadata["folders"] = folder_segments(relative.as_posix())
+            _place_document(doc, relative.as_posix())
         orphan_prefix = orphan_prefix_for(path)
     else:
         current_sources = set()
         docs = [load_document(path, settings=settings)]
-        # A single file is its own root: there is no folder structure to face.
-        docs[0].metadata["folders"] = []
+        # A single file is its own root: no folder structure, no compartment.
+        _place_document(docs[0], path.name)
         orphan_prefix = None
 
     logger.info("Loaded %d document(s) from %s", len(docs), path)
@@ -336,7 +356,7 @@ def ingest_source(source: str, settings: Settings | None = None) -> dict[str, in
             doc.metadata["source"] = item.source_uri
             # Fetchers build source_uri as f"{base}/{relative}", so stripping the
             # base leaves exactly the path relative to the folder that was asked for.
-            doc.metadata["folders"] = folder_segments(item.source_uri[len(base) + 1 :])
+            _place_document(doc, item.source_uri[len(base) + 1 :])
             docs.append(doc)
 
         logger.info("Loaded %d document(s) from %s", len(docs), source)

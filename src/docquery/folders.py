@@ -30,3 +30,16 @@ def folder_segments(relative_path: str) -> list[str]:
     """
     parts = [p for p in relative_path.replace("\\", "/").split("/") if p]
     return [s for p in parts[:-1] if (s := normalize_segment(p))]
+
+
+def sector_of(segments: list[str]) -> str:
+    """The compartment a document belongs to: its top-level folder.
+
+    Deliberately the first segment alone, never the whole list: `folders` is a
+    search facet matched at any depth, so `financeiro/rh/nota.pdf` carries "rh"
+    among its segments while belonging to the financeiro compartment. Access
+    control has to read the top of the path and nothing else.
+
+    Empty for a file at the ingested root — it belongs to no compartment.
+    """
+    return segments[0] if segments else ""
