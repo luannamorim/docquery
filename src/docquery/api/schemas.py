@@ -34,7 +34,10 @@ class QueryRequest(BaseModel):
     )
     source: str | None = Field(
         default=None,
-        description="Restrict retrieval to a single source document path",
+        description=(
+            "Restrict retrieval to one document, matched exactly: its local path "
+            "or remote URI, copied from the 'source' of a citation"
+        ),
     )
     tags: list[str] | None = Field(
         default=None,
@@ -44,7 +47,10 @@ class QueryRequest(BaseModel):
 
 class Source(BaseModel):
     index: int = Field(description="1-based citation index, matches [N] in answer")
-    source: str = Field(description="Source document path")
+    source: str = Field(
+        description="Local path or remote URI identifying the document; "
+        "pass it back as the request's 'source' to scope a follow-up query"
+    )
     chunk_index: int = Field(description="Chunk position within the source document")
     score: float = Field(description="Cross-encoder relevance score")
     text: str = Field(description="Retrieved passage text")
