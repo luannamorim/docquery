@@ -79,6 +79,25 @@ class Settings(BaseSettings):
     # symlinks pointing outside the root are filtered.
     ingest_root: Path = Path("docs")
 
+    # Remote ingest sources (sharepoint:// and gdrive:// URIs)
+    # Allowlist for /ingest, the counterpart of ingest_root for remote URIs. An
+    # empty list is fail-closed: the API accepts no remote URI at all, so a
+    # caller cannot make the server pull arbitrary sites from the tenant. The
+    # CLI is unrestricted — it is already an operator-level entry point.
+    ingest_allowed_source_prefixes: list[str] = []
+    # Per-file download ceiling. Files above it are skipped, not fatal.
+    source_max_file_mb: int = 50
+    # SharePoint via Microsoft Graph, client credentials. Separate from the API's
+    # own Entra ID app registration: this one is a confidential client that reads
+    # documents, that one only validates callers' tokens.
+    sharepoint_tenant_id: str = ""
+    sharepoint_client_id: str = ""
+    sharepoint_client_secret: SecretStr | None = None
+    # Google Drive service account. A path to the JSON key rather than the JSON
+    # itself, so the credential is mounted as a file and never sits in the
+    # environment where any subprocess could read it.
+    gdrive_service_account_file: Path | None = None
+
     # Clearance / RBAC
     # default_clearance_level: applied to documents that don't match
     # clearance_policy. Default 0 (public) keeps the demo corpus accessible;

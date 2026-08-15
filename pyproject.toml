@@ -21,6 +21,13 @@ dependencies = [
     # Entra ID token validation. The [crypto] extra brings cryptography, needed
     # for RS256 verification and to mint test keypairs without a dev dependency.
     "pyjwt[crypto]",
+    # Remote ingest sources. Both APIs are reached over plain REST with httpx —
+    # msgraph-sdk and google-api-python-client each pull a large stack to wrap
+    # the handful of endpoints used here. msal and google-auth handle only the
+    # credential exchange, which is the part worth not writing by hand.
+    "httpx",
+    "msal",
+    "google-auth",
 ]
 
 [project.optional-dependencies]
