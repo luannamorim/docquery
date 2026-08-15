@@ -22,6 +22,10 @@ services:
       # Self-contained model cache so `docker compose up` works on any host
       # regardless of UID. First run downloads the models (~90MB); persists after.
       - hf_cache:/home/appuser/.cache/huggingface
+      # Google Drive service account key, mounted as a file rather than passed
+      # through the environment. Uncomment alongside
+      # GDRIVE_SERVICE_ACCOUNT_FILE=/app/secrets/gdrive-sa.json in .env.
+      # - ./secrets/gdrive-sa.json:/app/secrets/gdrive-sa.json:ro
     depends_on:
       qdrant:
         condition: service_healthy

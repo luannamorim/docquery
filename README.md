@@ -335,6 +335,56 @@ Rejections carry a single generic message; the specific reason is logged server-
 
 > `/docs` and `/openapi.json` remain public — the schema is not sensitive here, and Swagger's **Authorize** button makes the API explorable. Pass `docs_url=None` to `FastAPI(...)` if a deployment needs them closed.
 
+## Remote Sources — SharePoint & Google Drive
+
+Ingestion accepts a folder URI as well as a local path. Both the CLI and `POST /ingest` take the same forms:
+
+```bash
+make ingest docs/sample/                                              # local, unchanged
+make ingest "sharepoint://contoso.sharepoint.com/sites/Eng/Documents/policies"
+make ingest "gdrive://1AbCdEfGhIjKlMnOpQrS"
+```
+
+| Scheme | Form | Notes |
+|--------|------|-------|
+| `sharepoint://` | `<host>/sites/<site>/<drive>[/<folder>]` | Resolved through Microsoft Graph; recurses into subfolders |
+| `gdrive://` | `<folder id>` | The id from the folder's Drive URL. A subfolder is addressed by its own id — Drive allows duplicate folder names, so a name path would be ambiguous |
+
+**One-shot pull.** Each run downloads the folder's files into a temporary directory, parses them with the ordinary loaders (Docling needs a real file on disk) and discards them. There is no scheduler and no incremental sync: re-running fetches again, and the existing source-prefix deduplication decides what changed. Files above `SOURCE_MAX_FILE_MB`, unsupported extensions, and Google-native Docs/Sheets (which have no downloadable bytes) are skipped with a log rather than failing the run.
+
+**Sources are URIs.** A remote document is indexed under `<folder-uri>/<relative path>`, not the scratch path it was downloaded to. That means clearance and type policies work on remote content unchanged — they match on source prefixes either way:
+
+```bash
+CLEARANCE_POLICY='[["sharepoint://contoso.sharepoint.com/sites/RH/", 5]]'
+```
+
+> Keep the trailing `/` in prefixes. Prefixes are matched on path boundaries, so `.../sites/Eng` will not match `.../sites/Engineering`, but writing the separator makes the intent explicit.
+
+Orphan pruning works the same way: a document removed from the remote folder disappears from the next listing and its chunks are deleted.
+
+**Configuration.**
+
+```bash
+# Which remote URIs POST /ingest may pull. Empty (the default) accepts none —
+# the CLI is unrestricted, being an operator-level entry point already.
+INGEST_ALLOWED_SOURCE_PREFIXES='["sharepoint://contoso.sharepoint.com/sites/Eng/Documents"]'
+SOURCE_MAX_FILE_MB=50
+
+# SharePoint — Microsoft Graph, client credentials
+SHAREPOINT_TENANT_ID=<tenant-guid>
+SHAREPOINT_CLIENT_ID=<application-guid>
+SHAREPOINT_CLIENT_SECRET=<secret>
+
+# Google Drive — service account key, mounted as a file
+GDRIVE_SERVICE_ACCOUNT_FILE=/app/secrets/gdrive-sa.json
+```
+
+This app registration is **separate from the one that authenticates callers**: it is a confidential client that reads documents, while `AZURE_CLIENT_ID` only identifies this API as a token audience. Grant it the application permission `Sites.Read.All`, or preferably `Sites.Selected` with a per-site grant. For Drive, share the folders with the service account's e-mail address; no domain-wide delegation is needed.
+
+Both APIs are called as plain REST over `httpx`, with `msal` and `google-auth` handling only the credential exchange — `msgraph-sdk` and `google-api-python-client` each pull a large stack to wrap the handful of endpoints used here.
+
+> Large corpora belong on the CLI. `POST /ingest` runs the pull in a background task on a single worker, so a multi-gigabyte folder will occupy it for the duration.
+
 ## Document Types & Scoped Retrieval
 
 The corpus is heterogeneous (contracts, policies, manuals, …), so chunks carry a `doc_type` plus descriptive facets, and queries can be scoped by them — metadata-filtered hybrid retrieval in a **single collection** (no per-type collections, no rigid hierarchy).
@@ -453,6 +503,14 @@ curl -X POST http://localhost:8000/ingest \
 # {"task_id": "e3b0c442-...", "status": "pending"}
 ```
 
+`path` also accepts a remote folder URI (see [Remote Sources](#remote-sources--sharepoint--google-drive)), which must fall under `INGEST_ALLOWED_SOURCE_PREFIXES`:
+
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"path": "sharepoint://contoso.sharepoint.com/sites/Eng/Documents/policies"}'
+```
+
 ### `GET /ingest/{task_id}`
 
 ```bash
@@ -470,6 +528,7 @@ docquery/
 │   ├── config.py              # pydantic-settings env config
 │   ├── ingest/
 │   │   ├── loader.py          # format dispatch + legacy loaders (md, pdf, txt)
+│   │   ├── sources.py         # scheme dispatch: sharepoint:// and gdrive:// pulls
 │   │   ├── docling_loader.py  # Docling parsing/chunking (pdf, office, images)
 │   │   ├── chunker.py         # markdown / recursive / semantic strategies
 │   │   ├── sparse.py          # BM25 sparse vector computation
@@ -531,7 +590,7 @@ Directory ingest is fully idempotent: chunk IDs are the first 64 bits of `SHA256
 Hardened in a follow-up security/code-review pass (full per-commit detail in `git log`):
 
 - Azure Entra ID bearer-token validation (`AUTH_ENABLED`) on every endpoint but `/health`, with app roles mapped to clearance levels.
-- Path-prefix allowlist on `/ingest` against `INGEST_ROOT`, with symlink filtering.
+- Path-prefix allowlist on `/ingest` against `INGEST_ROOT`, with symlink filtering; remote URIs gated by `INGEST_ALLOWED_SOURCE_PREFIXES` (empty by default), matched on path boundaries and refusing relative segments.
 - Server-side clearance via `CLEARANCE_POLICY` (frontmatter ignored); `MAX_CLEARANCE_LEVEL` ceiling on the header.
 - In-memory rate limit (`RATE_LIMIT_REQUESTS_PER_MINUTE`), `Content-Length` cap (`REQUEST_MAX_BODY_BYTES`), and security headers (`X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`).
 - OpenAI client `timeout` + `max_retries` from settings.

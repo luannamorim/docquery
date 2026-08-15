@@ -239,6 +239,7 @@ Two items above were deliberately reopened after the original six phases, becaus
 
 - **Document parsing** — Docling ingestion (OCR, table structure, DOCX/PPTX/XLSX).
 - **Auth/RBAC** — server-side clearance policy, then Azure Entra ID bearer-token validation (`AUTH_ENABLED`) with app roles mapped to clearance levels. RBAC filtering shipped first with an unauthenticated header; the header is now the demo-only path.
+- **Remote sources** — ingestion from SharePoint and Google Drive folders by URI, pulled one-shot into a temporary directory. Not in the original scope either way; added because a corpus that only exists on a local disk is not the case the system is for.
 
 ---
 
