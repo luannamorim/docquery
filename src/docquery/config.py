@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     # level among the token's roles wins; tokens with no mapped role fall back to
     # default_clearance_level.
     auth_role_clearance_map: list[tuple[str, int]] = []
+    # App role → sector (the top-level folder it may read). JSON in .env:
+    # [["sector.rh", "rh"]]. A token's sectors are the union of its mapped
+    # roles; a token with no mapped role reads nothing. Folders everyone may
+    # read are an ordinary sector whose role is granted to every employee.
+    auth_role_sector_map: list[tuple[str, str]] = []
     # Clock skew tolerance for exp/nbf/iat. Without it, container clock drift
     # produces intermittent 401s that are hard to diagnose.
     auth_leeway_seconds: int = 60

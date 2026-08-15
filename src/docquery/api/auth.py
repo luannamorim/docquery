@@ -23,6 +23,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from docquery.config import Settings, get_settings
+from docquery.folders import normalize_segment
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,23 @@ def roles_to_clearance(roles: list[str], settings: Settings) -> int:
     if not levels:
         return settings.default_clearance_level
     return min(max(levels), settings.max_clearance_level)
+
+
+def roles_to_sectors(roles: list[str], settings: Settings) -> list[str]:
+    """Sectors a token may read, as the union of its mapped app roles.
+
+    An empty result means the caller reads nothing — unlike a clearance level,
+    there is no floor to fall back to. Names are normalized the same way the
+    ingest normalizes folder names, so the mapping can be written with whatever
+    casing the SharePoint library displays.
+    """
+    return sorted(
+        {
+            sector
+            for role, raw in settings.auth_role_sector_map
+            if role in roles and (sector := normalize_segment(raw))
+        }
+    )
 
 
 def require_auth(

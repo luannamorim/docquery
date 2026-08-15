@@ -250,6 +250,51 @@ def test_clearance_is_capped_at_max() -> None:
     assert auth.roles_to_clearance(["clearance.99"], settings) == 10
 
 
+# --- roles_to_sectors -----------------------------------------------------
+
+
+def _sector_settings(**overrides) -> Settings:
+    fields = {
+        "auth_role_sector_map": [
+            ("sector.rh", "rh"),
+            ("sector.juridico", "juridico"),
+            ("sector.institucional", "institucional"),
+        ]
+    }
+    return _auth_settings(**{**fields, **overrides})
+
+
+def test_mapped_role_grants_its_sector() -> None:
+    assert auth.roles_to_sectors(["sector.rh"], _sector_settings()) == ["rh"]
+
+
+def test_sectors_are_the_union_of_the_mapped_roles() -> None:
+    roles = ["sector.juridico", "sector.rh"]
+    assert auth.roles_to_sectors(roles, _sector_settings()) == ["juridico", "rh"]
+
+
+def test_two_roles_onto_one_sector_do_not_duplicate_it() -> None:
+    """A shared folder is granted by handing the same sector to several roles."""
+    settings = _sector_settings(
+        auth_role_sector_map=[("sector.rh", "rh"), ("rh.legacy", "rh")]
+    )
+    assert auth.roles_to_sectors(["sector.rh", "rh.legacy"], settings) == ["rh"]
+
+
+def test_sector_names_are_normalized_like_folder_names() -> None:
+    settings = _sector_settings(auth_role_sector_map=[("sector.rh", "  RH  ")])
+    assert auth.roles_to_sectors(["sector.rh"], settings) == ["rh"]
+
+
+def test_unmapped_role_reads_nothing() -> None:
+    """No floor to fall back to — unlike a clearance level, [] means nothing."""
+    assert auth.roles_to_sectors(["Reader.All"], _sector_settings()) == []
+
+
+def test_missing_roles_claim_reads_nothing() -> None:
+    assert auth.roles_to_sectors([], _sector_settings()) == []
+
+
 # --- Endpoint protection --------------------------------------------------
 
 

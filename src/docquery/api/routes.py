@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 
-from docquery.api.auth import require_auth, roles_to_clearance
+from docquery.api.auth import require_auth, roles_to_clearance, roles_to_sectors
 from docquery.api.guard import check_input
 from docquery.api.schemas import (
     HealthResponse,
@@ -18,6 +18,7 @@ from docquery.api.schemas import (
     QueryResponse,
 )
 from docquery.config import Settings, get_settings
+from docquery.folders import normalize_segment
 from docquery.generate.rag import query_pipeline
 from docquery.ingest.pipeline import ingest_source
 from docquery.ingest.sources import (
@@ -68,6 +69,36 @@ def get_user_clearance(
 
 
 ClearanceDep = Annotated[int, Depends(get_user_clearance)]
+
+
+def get_user_sectors(
+    settings: SettingsDep,
+    claims: Annotated[dict | None, Depends(require_auth)],
+    x_user_sectors: Annotated[str | None, Header()] = None,
+) -> list[str] | None:
+    """Resolve which sectors the caller may read.
+
+    Three states, and the difference between the last two matters: None means
+    "do not filter", while an empty list means "reads nothing". With auth on the
+    token decides and the header is ignored, so a caller cannot widen its own
+    reach; a token with no mapped role gets [] and sees nothing.
+
+    With auth off there is no identity to trust, so the default is None — the
+    header stays as the way to exercise the filter in demos and tests.
+    """
+    if settings.auth_enabled:
+        sectors = roles_to_sectors((claims or {}).get("roles", []), settings)
+        logger.info("Query authorized for sectors=%s", sectors or "none")
+        return sectors
+
+    if x_user_sectors is None:
+        return None
+    return sorted(
+        {s for raw in x_user_sectors.split(",") if (s := normalize_segment(raw))}
+    )
+
+
+SectorsDep = Annotated[list[str] | None, Depends(get_user_sectors)]
 
 
 class _TaskStore:
