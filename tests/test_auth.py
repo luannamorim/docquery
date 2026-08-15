@@ -7,15 +7,18 @@ ever reaching the tenant's JWKS endpoint.
 """
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from docquery.api import auth
-from docquery.config import Settings
+from docquery.api.app import app
+from docquery.config import Settings, get_settings
 
 TENANT = "11111111-1111-1111-1111-111111111111"
 CLIENT = "22222222-2222-2222-2222-222222222222"
@@ -244,3 +247,123 @@ def test_clearance_is_capped_at_max() -> None:
         auth_role_clearance_map=[("clearance.99", 99)], max_clearance_level=10
     )
     assert auth.roles_to_clearance(["clearance.99"], settings) == 10
+
+
+# --- Endpoint protection --------------------------------------------------
+
+
+@pytest.fixture
+def auth_client(monkeypatch, private_key):
+    """TestClient with auth switched on and the JWKS lookup stubbed out."""
+    public_key = private_key.public_key()
+    monkeypatch.setattr(auth, "_get_signing_key", lambda token, settings: public_key)
+    # A zero-argument callable: FastAPI reads the override's signature, so a
+    # function with **kwargs would turn them into request parameters.
+    app.dependency_overrides[get_settings] = lambda: _auth_settings()
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+
+def _capturing_pipeline() -> tuple[dict, callable]:
+    captured: dict = {}
+
+    def _pipeline(query: str, settings=None, user_clearance: int = 0, **kwargs) -> dict:
+        captured["user_clearance"] = user_clearance
+        return {
+            "answer": "test",
+            "sources": [],
+            "query": query,
+            "model": "gpt-4o-mini",
+        }
+
+    return captured, _pipeline
+
+
+def test_query_with_valid_token_uses_role_clearance(auth_client, private_key) -> None:
+    token = make_token(private_key, roles=["clearance.5"])
+    captured, pipeline = _capturing_pipeline()
+    with patch("docquery.api.routes.query_pipeline", side_effect=pipeline):
+        response = auth_client.post(
+            "/query",
+            json={"query": "what is hybrid search?"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 200
+    assert captured["user_clearance"] == 5
+
+
+def test_query_without_token_is_unauthorized(auth_client) -> None:
+    response = auth_client.post("/query", json={"query": "anything"})
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "Bearer"
+
+
+def test_query_with_malformed_scheme_is_unauthorized(auth_client) -> None:
+    response = auth_client.post(
+        "/query",
+        json={"query": "anything"},
+        headers={"Authorization": "Basic dXNlcjpwYXNz"},
+    )
+    assert response.status_code == 401
+
+
+def test_health_needs_no_token(auth_client) -> None:
+    """The Docker healthcheck has no token to present."""
+    response = auth_client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_ingest_without_token_is_unauthorized(auth_client) -> None:
+    response = auth_client.post("/ingest", json={"path": "docs"})
+    assert response.status_code == 401
+
+
+def test_ingest_status_without_token_is_unauthorized(auth_client) -> None:
+    response = auth_client.get("/ingest/some-task-id")
+    assert response.status_code == 401
+
+
+def test_clearance_header_is_ignored_when_auth_is_on(auth_client, private_key) -> None:
+    """A caller must not raise their own clearance past what the token grants."""
+    token = make_token(private_key, roles=["clearance.5"])
+    captured, pipeline = _capturing_pipeline()
+    with patch("docquery.api.routes.query_pipeline", side_effect=pipeline):
+        response = auth_client.post(
+            "/query",
+            json={"query": "what is hybrid search?"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-User-Clearance": "10",
+            },
+        )
+    assert response.status_code == 200
+    assert captured["user_clearance"] == 5
+
+
+def test_token_without_roles_gets_default_clearance(auth_client, private_key) -> None:
+    token = make_token(private_key)
+    captured, pipeline = _capturing_pipeline()
+    with patch("docquery.api.routes.query_pipeline", side_effect=pipeline):
+        response = auth_client.post(
+            "/query",
+            json={"query": "what is hybrid search?"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 200
+    assert captured["user_clearance"] == 0
+
+
+def test_expired_token_is_unauthorized_at_the_endpoint(
+    auth_client, private_key
+) -> None:
+    token = make_token(private_key, roles=["clearance.5"], expires_in=-3600)
+    response = auth_client.post(
+        "/query",
+        json={"query": "anything"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401
+    assert 'error="invalid_token"' in response.headers["WWW-Authenticate"]

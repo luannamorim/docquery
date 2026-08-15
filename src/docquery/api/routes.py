@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 
+from docquery.api.auth import require_auth, roles_to_clearance
 from docquery.api.guard import check_input
 from docquery.api.schemas import (
     HealthResponse,
@@ -22,23 +23,32 @@ from docquery.ingest.pipeline import ingest_path
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
-
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+# /health stays open so the Docker healthcheck can reach it without a token.
+system_router = APIRouter()
+# Everything else requires a valid bearer token when auth_enabled is set.
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 def get_user_clearance(
+    settings: SettingsDep,
+    claims: Annotated[dict | None, Depends(require_auth)],
     x_user_clearance: Annotated[int, Header()] = 0,
-    settings: SettingsDep = None,  # type: ignore[assignment]
 ) -> int:
-    """Read clearance level from the X-User-Clearance HTTP header (default 0).
+    """Resolve the caller's clearance level.
 
-    In a real system this would come from a verified JWT claim. Here it is an
-    unauthenticated header to demonstrate RBAC filtering without adding an auth
-    dependency outside the sprint scope. Bound-checked against
-    settings.max_clearance_level so callers cannot read above the configured
-    ceiling.
+    With auth enabled it comes from the token's app roles and the
+    X-User-Clearance header is ignored — otherwise any caller could raise their
+    own clearance past what the token grants. With auth disabled the header
+    remains the demo path, bound-checked against settings.max_clearance_level.
     """
+    if settings.auth_enabled:
+        clearance = roles_to_clearance((claims or {}).get("roles", []), settings)
+        if clearance > 0:
+            logger.info("Query authorized with clearance=%d", clearance)
+        return clearance
+
     if not (0 <= x_user_clearance <= settings.max_clearance_level):
         raise HTTPException(
             status_code=400,
@@ -107,7 +117,7 @@ def _run_ingest(task_id: str, path: Path, settings: Settings) -> None:
         _tasks.update(task_id, status="error", error="ingestion failed")
 
 
-@router.get("/health", tags=["system"])
+@system_router.get("/health", tags=["system"])
 def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
