@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-docquery is a production-grade RAG (Retrieval-Augmented Generation) system for querying technical documentation. It returns answers with citations and confidence scores, evaluated with RAGAS metrics. API-only — no frontend, no auth, no streaming, no chat history.
+docquery is a production-grade RAG (Retrieval-Augmented Generation) system for querying technical documentation. It returns answers with citations and confidence scores, evaluated with RAGAS metrics. API-only — no frontend, no streaming, no chat history. Authentication is Azure Entra ID bearer-token validation, opt-in via `AUTH_ENABLED`.
 
 ## Commands
 
@@ -30,7 +30,13 @@ Three independent pipelines:
 - **Query** — Query Embedding → Hybrid Retrieval (dense + BM25 via Qdrant) → Cross-encoder Reranking → Context Assembly → LLM Generation → Response with citations
 - **Evaluation** — RAGAS metrics (faithfulness, relevancy, context precision) with before/after comparison
 
-Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, chunker, pipeline), `retrieve/` (embedder, hybrid, reranker), `generate/` (rag), `api/` (app, routes, schemas). Eval lives in `eval/`.
+Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, chunker, pipeline), `retrieve/` (embedder, hybrid, reranker), `generate/` (rag), `api/` (app, routes, schemas, auth). Eval lives in `eval/`.
+
+### API conventions
+
+- **Auth belongs in a `Depends`, never a middleware.** `api/auth.py` takes `Settings` as a parameter so tests can swap it via `app.dependency_overrides[get_settings]`; the middlewares in `ratelimit.py` call `get_settings()` directly and are painful to test as a result — don't copy that pattern.
+- Two routers in `routes.py`: `system_router` (open, `/health` only) and `router` (requires a bearer token). New endpoints go on `router` unless a probe needs to reach them without credentials.
+- Tests mint their own RSA keypair and monkeypatch `auth._get_signing_key`, so the suite never reaches the network.
 
 ## Tech Stack Decisions
 
@@ -42,6 +48,7 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, chunker, pi
 | Framework | FastAPI | Async, typed |
 | LLM | GPT-4o-mini (default) | Cost-effective; Claude as alternative |
 | Config | pydantic-settings | Env-based configuration |
+| Auth | Azure Entra ID via `pyjwt[crypto]` | Resource-server validation only (JWKS, RS256); app roles → clearance levels |
 | Chunking | LangChain text splitters only | Thin usage, no framework lock-in |
 
 ## Commit Workflow
