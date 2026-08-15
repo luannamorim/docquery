@@ -28,6 +28,10 @@ _ACCESS_FIELDS = ("clearance", "doc_type")
 class Document:
     content: str
     metadata: dict[str, MetaValue] = field(default_factory=dict)
+    # Structured DoclingDocument, set only when the file was parsed by Docling.
+    # When present the chunker uses it to keep tables, headings and page
+    # provenance; when None the legacy text-based chunking applies unchanged.
+    dl_doc: object | None = None
 
 
 def _parse_frontmatter(text: str) -> tuple[str, dict]:
@@ -143,29 +147,81 @@ LOADERS: dict[str, Callable[[Path, Settings | None], Document]] = {
 }
 
 
+def _supported_extensions(settings: Settings) -> set[str]:
+    """Extensions accepted for ingestion under the current settings."""
+    extensions = set(LOADERS)
+    if settings.docling_enabled:
+        from docquery.ingest.docling_loader import DOCLING_EXTENSIONS
+
+        extensions |= DOCLING_EXTENSIONS
+    return extensions
+
+
 def load_document(path: Path, settings: Settings | None = None) -> Document:
+    settings = settings or get_settings()
+
+    if settings.docling_enabled:
+        from docquery.ingest import docling_loader
+
+        if docling_loader.handles(path, settings):
+            try:
+                return docling_loader.load_with_docling(path, settings)
+            except docling_loader.DoclingLimitExceeded:
+                # A configured limit is operator policy, not a broken file:
+                # downgrading to the legacy parser would silently ingest the
+                # document the limit was meant to keep out.
+                raise
+            except Exception as e:
+                if path.suffix.lower() not in docling_loader.FALLBACK_EXTENSIONS:
+                    raise docling_loader.DoclingConversionError(
+                        f"Docling could not parse {path}: {e}"
+                    ) from e
+                logger.warning(
+                    "Docling failed on %s (%s); falling back to the legacy parser",
+                    path,
+                    e,
+                )
+
     loader = LOADERS.get(path.suffix.lower())
     if loader is None:
         raise ValueError(f"Unsupported file type: {path.suffix}")
     return loader(path, settings)
 
 
-def iter_ingestable_files(path: Path) -> list[Path]:
+def iter_ingestable_files(path: Path, settings: Settings | None = None) -> list[Path]:
     """Recursively list supported files under path, sorted, skipping symlinks.
 
     Recursion lets a single ingest root hold typed subfolders
     (e.g. data/contracts/, data/policies/). `rglob` does not descend into
     symlinked directories, and symlinked files are skipped explicitly.
     """
+    settings = settings or get_settings()
+    extensions = _supported_extensions(settings)
     files: list[Path] = []
     for file_path in sorted(path.rglob("*")):
         if file_path.is_symlink():
             logger.warning("Skipping symlink during ingest: %s", file_path)
             continue
-        if file_path.is_file() and file_path.suffix.lower() in LOADERS:
+        if file_path.is_file() and file_path.suffix.lower() in extensions:
             files.append(file_path)
     return files
 
 
 def load_directory(path: Path, settings: Settings | None = None) -> list[Document]:
-    return [load_document(fp, settings) for fp in iter_ingestable_files(path)]
+    settings = settings or get_settings()
+    docs: list[Document] = []
+    for file_path in iter_ingestable_files(path, settings):
+        try:
+            docs.append(load_document(file_path, settings))
+        except Exception as e:
+            # Only Docling-exclusive formats are skipped: they have no legacy
+            # parser, so one unreadable file should not abort the whole run.
+            # Legacy formats keep aborting, as they always have.
+            if settings.docling_enabled:
+                from docquery.ingest.docling_loader import DoclingConversionError
+
+                if isinstance(e, DoclingConversionError):
+                    logger.error("Skipping %s: %s", file_path, e)
+                    continue
+            raise
+    return docs
