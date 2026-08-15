@@ -43,8 +43,9 @@ Technical teams accumulate large volumes of documentation — architecture docs,
 ```mermaid
 flowchart TD
     subgraph Ingestion
-        A[Documents\nmd / pdf / txt] --> B[Loader\ningest_root allowlist]
-        B --> C[Chunker\nmarkdown · recursive · semantic]
+        A[Documents\npdf · docx · pptx · xlsx\npng · jpg · md · txt] --> B[Loader\ningest_root allowlist]
+        B --> B2[Docling\nlayout · OCR · tables\npage provenance]
+        B2 --> C[Chunker\nhybrid · markdown · recursive · semantic]
         C --> Y[Clearance Policy\npath_prefix → level]
         Y --> D[Embedder\nall-MiniLM-L6-v2]
         D --> E[(Qdrant\ndense + sparse\nclearance_level index)]
@@ -67,6 +68,117 @@ flowchart TD
     E --> I
     X[X-User-Clearance header] --> I
 ```
+
+## Document Parsing — Docling
+
+Docling is responsible for parsing and structuring documents. Qdrant remains responsible for vector storage and retrieval. Clearance/RBAC is still applied before chunks are sent to the LLM.
+
+Docling replaces only the parsing stage. Everything after it — chunk classification, embedding, hybrid retrieval, RRF, reranking and the clearance filter — is unchanged. The feature is **off by default**; with `DOCLING_ENABLED=false` the pipeline behaves exactly as it did before, and the `docling` package is never even imported.
+
+### Supported formats
+
+| Format | Status | Notes |
+| ------ | ------ | ----- |
+| PDF (native text) | Supported and tested | Headings, page numbers and tables recovered |
+| PDF (scanned) | Supported and tested | Routed through OCR; see below |
+| PNG, JPG/JPEG | Supported and tested | Treated as a single scanned page |
+| DOCX | Supported and tested | Headings and tables recovered; no page numbers |
+| PPTX, XLSX | Supported by Docling, not validated here | Enabled, but no fixture covers them yet |
+| MD, TXT | Legacy parser, unchanged | Docling has no plain-text backend, and the markdown loader carries frontmatter parsing and heading promotion that must not regress |
+
+Turning the flag on also makes the new extensions eligible for ingestion — `iter_ingestable_files` picks them up only when `DOCLING_ENABLED=true`.
+
+### OCR
+
+OCR is **on by default** and fires automatically: Docling runs it over bitmap regions only, so a native-text PDF pays no OCR cost while a scanned page gets recognized. There is no separate "force OCR" mode — the trigger is detection-based, and `DOCLING_OCR_ENABLED=false` turns it off entirely (a scanned PDF then indexes as empty text).
+
+The engine is RapidOCR on the PyTorch backend, which ships as part of `docling` and reuses the `torch` already in the image — no extra dependency and no system packages such as Tesseract. OCR is CPU-bound and is by far the most expensive part of ingestion.
+
+RapidOCR uses **one** language per run, so `DOCLING_OCR_LANGS` only honours its first entry. The default `en` selects the PP-OCRv6 recognizer, whose 18k-character set includes Portuguese diacritics — one model serves both languages. Be careful changing it: script-family values such as `latin` resolve to a *different* (PP-OCRv4) checkpoint that the image does not prefetch, so OCR would fail offline. If you need one, prefetch it too:
+
+```bash
+docling-tools models download rapidocr --rapidocr-backend-lang torch:latin -o /opt/docling-models
+```
+
+### Tables
+
+`DOCLING_TABLE_STRUCTURE=true` (default) runs TableFormer to recover the real row/column grid, and chunks render tables as **markdown** rather than Docling's default triplet linearization, so a citation stays readable.
+
+The anti-fragmentation rule: the chunker never cuts a table mid-row. A table larger than one chunk is split **by rows, with the header row repeated on every fragment**, so no fragment is an anonymous grid of numbers. Chunks containing a table are tagged `content_type="table"`.
+
+### Images
+
+Figures are located and carried through with their page provenance, and chunks that contain one are tagged `content_type="figure"`. Image **captioning is deliberately not enabled**: describing a figure needs a vision-language model, which would add a large dependency and a per-document inference cost. The classification is already in place for it, so captioning can be added later as an opt-in step without touching the pipeline.
+
+A standalone PNG/JPG is a different case and *is* handled today: it goes through the same OCR path as a scanned page.
+
+### Chunking
+
+Documents parsed by Docling are chunked by Docling's `HybridChunker` instead of the LangChain splitters, so splits follow real layout boundaries. The chunker is bound to the project's own embedding tokenizer (`all-MiniLM-L6-v2`, 256 tokens), which means chunks are sized in tokens the embedder can actually encode rather than in characters — previously a 1024-character chunk could silently overflow the model's limit.
+
+Granularity does change. On the three-page test fixture the legacy splitter produced 6 chunks averaging 360 characters, while Docling produced 3 averaging 721 — one per section, because it merges undersized neighbours that share a heading instead of cutting on character counts. The direction is document-dependent: dense pages split more, sparse ones merge. Re-run `make eval` after switching a corpus over if retrieval quality matters to you. `CHUNKER_STRATEGY` still governs the legacy path and is ignored for Docling-parsed documents.
+
+### Metadata
+
+Every chunk stays traceable to its origin. Three payload fields are new and **additive** — documents indexed before this change remain searchable, and no reindex is required:
+
+| Docling source | Qdrant payload | Notes |
+| -------------- | -------------- | ----- |
+| file path | `source` | Unchanged; still drives the clearance and doc-type path policies |
+| `DocMeta.headings` | `section` | Joined as `Title > Section > Subsection` |
+| `prov.page_no` | `page_number` **(new)** | `0` when the format has no pages (DOCX/PPTX/XLSX) or the item carries no provenance. A chunk spanning pages reports the page it starts on |
+| item label | `content_type` **(new)** | `text` \| `table` \| `figure`; always `text` for the legacy parsers |
+| frontmatter/heuristic | `title` **(new)** | Was already extracted by the loader and silently dropped before |
+
+To backfill `page_number` on documents indexed earlier, simply re-ingest them — the pipeline deletes and rewrites chunks per source, so it is safe to repeat.
+
+### Configuration
+
+| Variable | Default | Meaning |
+| -------- | ------- | ------- |
+| `DOCLING_ENABLED` | `false` | Master switch; off means the legacy path, untouched |
+| `DOCLING_OCR_ENABLED` | `true` | OCR over bitmap regions |
+| `DOCLING_OCR_LANGS` | `["en"]` | RapidOCR language; only the first entry is used |
+| `DOCLING_TABLE_STRUCTURE` | `true` | TableFormer structure recovery (CPU-heavy) |
+| `DOCLING_MAX_FILE_MB` | `50` | Files above this are rejected with a clear error |
+| `DOCLING_MAX_PAGES` | `200` | Page cap per document |
+| `DOCLING_TIMEOUT_SECONDS` | `300` | Per-document conversion timeout |
+| `DOCLING_ARTIFACTS_PATH` | unset | Local model weights; set to `/opt/docling-models` in the image |
+
+### CPU, GPU and models
+
+Conversion is CPU-only by default and is by a wide margin the slowest stage of ingestion. Measured on the test fixtures (14-core CPU, no GPU), against the legacy `pypdf` path which parses each of them in well under a second:
+
+| Fixture | Legacy | Docling | Result |
+| ------- | ------ | ------- | ------ |
+| First document of a run | 0.1s | ~150s | Dominated by the one-off model load |
+| 1-page ruled table | 0.0s | 4.7s | Table recovered as a markdown grid instead of flat text |
+| Scanned page (OCR) | 0.0s | 8.8s | **0 chunks → 1 chunk**; the legacy path extracted no text at all |
+| 3 pages of dense text | 0.0s | 89.7s | ~30s per text-heavy page |
+
+So budget roughly 5–30 seconds per page once warm, depending on how much text is on it, plus a ~2 minute model load on the first document of a process. Peak RSS rises from about 470 MB to about 2 GB with all three models resident. Docling defaults to 4 inference threads regardless of host core count; raising it is the first thing to try if ingestion throughput matters. Docling can also use a GPU, but this project neither configures nor tests that.
+
+Model weights (layout, TableFormer, RapidOCR) are **pre-downloaded into the Docker image** and pinned via `DOCLING_ARTIFACTS_PATH`, so parsing a document never reaches the network. The embedding and reranker models are unchanged — they still populate the `hf_cache` volume on first start, as before. Outside Docker, Docling's models download on first use into `~/.cache/docling/models`; fetch them ahead of time with:
+
+```bash
+uv run docling-tools models download layout tableformer rapidocr
+```
+
+### Failure handling
+
+A PDF that Docling cannot parse falls back to the legacy `pypdf` reader, so ingestion still succeeds with plain text. A Docling-only format (DOCX, PPTX, XLSX, images) that fails is logged and **skipped**, leaving the rest of the run and the index intact. Legacy formats keep their original behaviour: a broken `.txt` still aborts the run.
+
+Exceeding `DOCLING_MAX_FILE_MB` or `DOCLING_MAX_PAGES` is treated differently from a parse failure: it is operator policy, so the document is rejected with an explicit error rather than quietly downgraded to the legacy parser. Both limits are checked before any conversion work starts.
+
+### Running the Docling tests
+
+Fast unit tests run in the normal suite and need no models. The end-to-end conversion tests over the committed fixtures are opt-in because they run real inference:
+
+```bash
+DOCQUERY_DOCLING_INTEGRATION=1 uv run pytest -m docling
+```
+
+Fixtures live in `tests/fixtures/` and are synthetic; regenerate them with `uv run python tests/fixtures/generate.py`.
 
 ## Quickstart
 
@@ -307,7 +419,8 @@ docquery/
 ├── src/docquery/
 │   ├── config.py              # pydantic-settings env config
 │   ├── ingest/
-│   │   ├── loader.py          # document loaders (md, pdf, txt)
+│   │   ├── loader.py          # format dispatch + legacy loaders (md, pdf, txt)
+│   │   ├── docling_loader.py  # Docling parsing/chunking (pdf, office, images)
 │   │   ├── chunker.py         # markdown / recursive / semantic strategies
 │   │   ├── sparse.py          # BM25 sparse vector computation
 │   │   └── pipeline.py        # ingestion orchestrator + clearance_level/doc_type payload
