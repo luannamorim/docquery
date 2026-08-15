@@ -145,9 +145,7 @@ def test_ingest_rejects_a_uri_outside_the_allowlist(remote_ingest) -> None:
 
 def test_ingest_rejects_remote_uris_by_default(ingest_root) -> None:
     """With no allowlist configured, the endpoint pulls from nowhere remote."""
-    response = client.post(
-        "/ingest", json={"path": "sharepoint://host/sites/Eng/Docs"}
-    )
+    response = client.post("/ingest", json={"path": "sharepoint://host/sites/Eng/Docs"})
     assert response.status_code == 400
 
 
