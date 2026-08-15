@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -98,6 +98,23 @@ class Settings(BaseSettings):
     default_doc_type: str = "document"
     type_policy: list[tuple[str, str]] = []
 
+    # Auth (Azure Entra ID)
+    # Opt-in like docling_enabled: the demo corpus and quickstart run without a
+    # tenant. When False the API derives clearance from the X-User-Clearance
+    # header exactly as before; production deployments must set AUTH_ENABLED=true.
+    auth_enabled: bool = False
+    # Not secrets — tenant and client (application) ID are public identifiers.
+    # There is no client secret: the API validates tokens, it never requests them.
+    azure_tenant_id: str = ""
+    azure_client_id: str = ""
+    # App role → clearance level. JSON in .env: [["clearance.5", 5]]. The highest
+    # level among the token's roles wins; tokens with no mapped role fall back to
+    # default_clearance_level.
+    auth_role_clearance_map: list[tuple[str, int]] = []
+    # Clock skew tolerance for exp/nbf/iat. Without it, container clock drift
+    # produces intermittent 401s that are hard to diagnose.
+    auth_leeway_seconds: int = 60
+
     # Ingest task store
     task_ttl_seconds: int = 3600
     task_max_size: int = 1000
@@ -118,6 +135,20 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1024
     llm_price_input_per_1m: float = 0.15
     llm_price_output_per_1m: float = 0.60
+
+    @model_validator(mode="after")
+    def _check_auth_config(self) -> "Settings":
+        """Fail fast when auth is on but unconfigured.
+
+        Without this the API would boot with auth_enabled=True and no tenant,
+        rejecting every token — or worse, appear protected while validating
+        against an empty issuer.
+        """
+        if self.auth_enabled and not (self.azure_tenant_id and self.azure_client_id):
+            raise ValueError(
+                "auth_enabled requires azure_tenant_id and azure_client_id"
+            )
+        return self
 
 
 @lru_cache
