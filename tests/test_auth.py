@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from docquery.api import app as app_module
 from docquery.api import auth
 from docquery.api.app import app
 from docquery.config import Settings, get_settings
@@ -354,6 +355,24 @@ def test_token_without_roles_gets_default_clearance(auth_client, private_key) ->
         )
     assert response.status_code == 200
     assert captured["user_clearance"] == 0
+
+
+def test_startup_survives_an_unreachable_jwks_endpoint(monkeypatch) -> None:
+    """A briefly unreachable tenant must not stop the app from serving /health."""
+    monkeypatch.setattr(app_module, "_get_model", lambda *a, **kw: None)
+    monkeypatch.setattr(app_module, "_get_reranker", lambda *a, **kw: None)
+    monkeypatch.setattr(app_module, "get_settings", lambda: _auth_settings())
+
+    def unreachable(jwks_uri):
+        raise jwt.PyJWKClientConnectionError("no route to host")
+
+    monkeypatch.setattr(app_module, "_get_jwks_client", unreachable)
+    app.dependency_overrides[get_settings] = lambda: _auth_settings()
+    try:
+        with TestClient(app) as started:
+            assert started.get("/health").status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
 
 
 def test_expired_token_is_unauthorized_at_the_endpoint(
