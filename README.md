@@ -337,6 +337,35 @@ curl -X POST http://localhost:8000/query \
 
 Rejections carry a single generic message; the specific reason is logged server-side only, so responses cannot be used to probe the expected issuer or audience.
 
+### Verifying the chain without a tenant
+
+Registering an app just to find out whether the wiring holds is a slow loop. The whole authorization chain can be driven locally instead: mint a keypair, swap `auth._get_signing_key` for its public half, and everything else — signature, expiry, audience, issuer, `roles` → sectors, the compartment filter — runs as the real code path. Only the JWKS fetch is stubbed, which is precisely the part that needs a tenant.
+
+This is the same seam the test suite uses (`tests/test_auth.py`), pointed at a running instance and a real corpus:
+
+```python
+settings = Settings(
+    auth_enabled=True, azure_tenant_id=TENANT, azure_client_id=CLIENT,
+    auth_role_sector_map=[("sector.rh", "policies"), ("sector.juridico", "contracts")],
+)
+auth._get_signing_key = lambda token, s: key.public_key()
+app.dependency_overrides[get_settings] = lambda: settings
+```
+
+Against a corpus indexed under `policies/` and `contracts/`, the same question returns:
+
+| Token | Result |
+|-------|--------|
+| none | `401 Not authenticated` |
+| expired | `401 Invalid token` |
+| valid, `roles: []` | `200`, no sources — fail-closed, not a refusal |
+| valid, role not in the map | `200`, no sources |
+| `roles: ["sector.rh"]` | `200`, sources from `policies/` only |
+| `roles: ["sector.juridico"]` | `200`, sources from `contracts/` only |
+| `roles: ["sector.juridico"]` **+** `X-User-Sectors: policies` | `200`, sources from `contracts/` — the header is ignored |
+
+The last row is the one that must never regress — with auth enabled the sectors come from the token, so a caller cannot widen its own reach by asking. It is pinned by `test_sector_header_is_ignored_when_auth_is_on`.
+
 > `/docs` and `/openapi.json` remain public — the schema is not sensitive here, and Swagger's **Authorize** button makes the API explorable. Pass `docs_url=None` to `FastAPI(...)` if a deployment needs them closed.
 
 ## Remote Sources — SharePoint & Google Drive
