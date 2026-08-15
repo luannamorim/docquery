@@ -18,6 +18,9 @@ dependencies = [
     # "operator torchvision::nms does not exist".
     "torchvision==0.26.0",
     "docling==2.120.1",
+    # Entra ID token validation. The [crypto] extra brings cryptography, needed
+    # for RS256 verification and to mint test keypairs without a dev dependency.
+    "pyjwt[crypto]",
 ]
 
 [project.optional-dependencies]
