@@ -14,6 +14,7 @@ from qdrant_client.models import (
 )
 
 from docquery.config import Settings, get_settings
+from docquery.folders import normalize_segment
 from docquery.ingest.sparse import sparse_vector
 from docquery.retrieve.embedder import embed_texts
 
@@ -24,6 +25,7 @@ def retrieve(
     settings: Settings | None = None,
     user_clearance: int = 0,
     doc_types: list[str] | None = None,
+    folders: list[str] | None = None,
     source: str | None = None,
     tags: list[str] | None = None,
 ) -> list[ScoredPoint]:
@@ -36,6 +38,8 @@ def retrieve(
 
     Optional scoping filters are ANDed with the clearance filter:
     - doc_types: restrict to these document types (e.g. ["contract"])
+    - folders: restrict to sources under any of these folder names, matched at
+      any depth of the ingested tree (e.g. ["rh"])
     - source: restrict to a single source document path
     - tags: restrict to chunks carrying any of these tags
     """
@@ -54,6 +58,12 @@ def retrieve(
     ]
     if doc_types:
         conditions.append(FieldCondition(key="doc_type", match=MatchAny(any=doc_types)))
+    if folders:
+        # Normalized here, the single choke point every caller passes through, so
+        # a filter matches the folder name as the user sees it regardless of case.
+        wanted = [s for f in folders if (s := normalize_segment(f))]
+        if wanted:
+            conditions.append(FieldCondition(key="folders", match=MatchAny(any=wanted)))
     if source:
         conditions.append(FieldCondition(key="source", match=MatchValue(value=source)))
     if tags:

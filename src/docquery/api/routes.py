@@ -162,6 +162,7 @@ def query(
         settings=settings,
         user_clearance=user_clearance,
         doc_types=request.doc_types,
+        folders=request.folders,
         source=request.source,
         tags=request.tags,
     )

@@ -1,20 +1,39 @@
-"""Tests for folder facets: server-side derivation from the ingested tree.
+"""Tests for folder facets: server-side derivation and query-time filtering.
 
 The corpus structure is the taxonomy — a folder is a facet the moment it is
-ingested, with nothing to configure. These tests cover the derivation itself
-and both ingest entry points (local tree and remote URI).
+ingested, with nothing to configure. These tests cover the derivation itself,
+both ingest entry points (local tree and remote URI), and the query filter,
+which matches a folder name at any depth and is ANDed with the clearance filter.
+
+Query-side tests mirror test_rbac.py's in-memory Qdrant approach
+(QdrantClient(":memory:")), so no Docker is needed.
 """
 
+import hashlib
 import unicodedata
 from pathlib import Path
+from unittest.mock import patch
 
+import numpy as np
 import pytest
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    Modifier,
+    PointStruct,
+    SparseVector,
+    SparseVectorParams,
+    VectorParams,
+)
 
 from docquery.config import Settings
 from docquery.folders import folder_segments, normalize_segment
 from docquery.ingest import pipeline, sources
+from docquery.retrieve.hybrid import retrieve
 
 SP_URI = "sharepoint://contoso.sharepoint.com/sites/Corp/Documentos"
+COLLECTION = "test_folders"
+DIM = 8
 
 
 def _settings(**overrides) -> Settings:
@@ -158,3 +177,159 @@ def test_trailing_slash_on_the_source_uri_does_not_shift_segments(
     pipeline.ingest_source(f"{SP_URI}/", settings=_sharepoint_settings())
 
     assert captured_ingest["docs"][0].metadata["folders"] == ["rh"]
+
+
+# --- query filter ---------------------------------------------------------
+
+
+def _query_settings(**overrides) -> Settings:
+    defaults = {
+        "qdrant_collection": COLLECTION,
+        "embedding_dimension": DIM,
+        "retrieval_top_k": 10,
+    }
+    defaults.update(overrides)
+    return _settings(**defaults)
+
+
+def _point(source: str, payload_extra: dict) -> PointStruct:
+    return PointStruct(
+        id=int(hashlib.sha256(source.encode()).hexdigest()[:16], 16),
+        vector={
+            "dense": [1.0] + [0.0] * (DIM - 1),
+            "sparse": SparseVector(indices=[1, 2, 3], values=[0.5, 0.3, 0.2]),
+        },
+        payload={
+            "text": "payment terms",
+            "source": source,
+            "chunk_index": 0,
+            "file_type": ".md",
+            "section": "",
+            "clearance_level": 0,
+            "entity": "",
+            "tags": [],
+            **payload_extra,
+        },
+    )
+
+
+@pytest.fixture()
+def qdrant_client() -> QdrantClient:
+    client = QdrantClient(":memory:")
+    client.create_collection(
+        collection_name=COLLECTION,
+        vectors_config={"dense": VectorParams(size=DIM, distance=Distance.COSINE)},
+        sparse_vectors_config={"sparse": SparseVectorParams(modifier=Modifier.IDF)},
+    )
+    client.upsert(
+        collection_name=COLLECTION,
+        points=[
+            _point("rh/ferias.md", {"folders": ["rh"], "tags": ["ferias"]}),
+            _point("rh/2024/plano.md", {"folders": ["rh", "2024"]}),
+            _point("financeiro/notas.md", {"folders": ["financeiro"]}),
+            _point("aviso.md", {"folders": []}),
+            # Ingested before folder facets existed: the field is simply absent.
+            _point("legado/antigo.md", {}),
+        ],
+    )
+    return client
+
+
+def _retrieve(client, settings=None, **kwargs) -> set[str]:
+    with (
+        patch("docquery.retrieve.hybrid.embed_texts") as mock_embed,
+        patch("docquery.retrieve.hybrid.sparse_vector") as mock_sparse,
+    ):
+        mock_embed.return_value = np.array([[1.0] + [0.0] * (DIM - 1)])
+        mock_sparse.return_value = ([1, 2, 3], [0.5, 0.3, 0.2])
+        points = retrieve(
+            "payment terms", client, settings or _query_settings(), **kwargs
+        )
+    return {(p.payload or {}).get("source", "") for p in points}
+
+
+def test_no_filter_returns_every_folder(qdrant_client):
+    assert _retrieve(qdrant_client) == {
+        "rh/ferias.md",
+        "rh/2024/plano.md",
+        "financeiro/notas.md",
+        "aviso.md",
+        "legado/antigo.md",
+    }
+
+
+def test_folder_filter_restricts_to_that_folder(qdrant_client):
+    sources = _retrieve(qdrant_client, folders=["rh"])
+    assert sources == {"rh/ferias.md", "rh/2024/plano.md"}
+
+
+def test_folder_filter_matches_at_any_depth(qdrant_client):
+    """A nested folder is a facet in its own right, not only via its parent."""
+    assert _retrieve(qdrant_client, folders=["2024"]) == {"rh/2024/plano.md"}
+
+
+def test_folder_filter_is_case_insensitive(qdrant_client):
+    assert _retrieve(qdrant_client, folders=["RH"]) == {
+        "rh/ferias.md",
+        "rh/2024/plano.md",
+    }
+
+
+def test_several_folders_are_ored_together(qdrant_client):
+    assert _retrieve(qdrant_client, folders=["financeiro", "2024"]) == {
+        "financeiro/notas.md",
+        "rh/2024/plano.md",
+    }
+
+
+def test_folder_filter_is_anded_with_other_filters(qdrant_client):
+    assert _retrieve(qdrant_client, folders=["rh"], tags=["ferias"]) == {"rh/ferias.md"}
+
+
+def test_blank_folder_names_are_treated_as_no_filter(qdrant_client):
+    """Consistent with tags: an empty selection must not silently match nothing."""
+    assert len(_retrieve(qdrant_client, folders=["  "])) == 5
+
+
+def test_chunks_without_the_field_are_excluded_when_filtering(qdrant_client):
+    """Points ingested before this feature carry no folders; re-ingest restores them."""
+    assert "legado/antigo.md" not in _retrieve(qdrant_client, folders=["legado"])
+
+
+def test_clearance_still_wins_over_a_folder_filter(qdrant_client):
+    qdrant_client.upsert(
+        collection_name=COLLECTION,
+        points=[_point("rh/secreto.md", {"folders": ["rh"], "clearance_level": 5})],
+    )
+    assert "rh/secreto.md" not in _retrieve(qdrant_client, folders=["rh"])
+    assert "rh/secreto.md" in _retrieve(qdrant_client, folders=["rh"], user_clearance=5)
+
+
+def test_api_propagates_the_folders_filter():
+    """The /query endpoint forwards folders to the pipeline."""
+    from fastapi.testclient import TestClient
+
+    from docquery.api.app import app
+
+    captured: dict = {}
+
+    def _pipeline(query: str, settings=None, user_clearance: int = 0, **kwargs) -> dict:
+        captured.update(kwargs)
+        return {
+            "answer": "test",
+            "sources": [],
+            "query": query,
+            "model": "gpt-4o-mini",
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "cost_usd": 0.0,
+        }
+
+    with patch("docquery.api.routes.query_pipeline", side_effect=_pipeline):
+        client = TestClient(app)
+        response = client.post(
+            "/query", json={"query": "prazo de ferias", "folders": ["rh"]}
+        )
+
+    assert response.status_code == 200
+    assert captured.get("folders") == ["rh"]

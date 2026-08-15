@@ -29,6 +29,13 @@ class QueryRequest(BaseModel):
         default=None,
         description="Restrict retrieval to these document types, e.g. ['contract']",
     )
+    folders: list[str] | None = Field(
+        default=None,
+        description=(
+            "Restrict retrieval to sources under any of these folder names, "
+            "matched at any depth of the ingested tree (case-insensitive)"
+        ),
+    )
     source: str | None = Field(
         default=None,
         description="Restrict retrieval to a single source document path",
@@ -52,6 +59,10 @@ class Source(BaseModel):
     doc_type: str = Field(
         default="",
         description="Document type of the source (e.g. contract, policy)",
+    )
+    folders: list[str] = Field(
+        default_factory=list,
+        description="Folder segments of the source, relative to the ingested root",
     )
 
 
