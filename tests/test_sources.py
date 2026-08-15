@@ -429,3 +429,115 @@ def test_gdrive_rejects_a_path_after_the_folder_id(tmp_path) -> None:
         sources.fetch(
             "gdrive://folder-abc1234567/subfolder", tmp_path, _gdrive_settings(tmp_path)
         )
+
+
+# --- URI validation -------------------------------------------------------
+
+
+def test_validate_accepts_a_well_formed_uri(tmp_path) -> None:
+    sources.validate_uri(SP_URI, _sharepoint_settings())
+    sources.validate_uri(GD_URI, _gdrive_settings(tmp_path))
+
+
+def test_validate_rejects_malformed_and_unconfigured(tmp_path) -> None:
+    with pytest.raises(sources.SourceError):
+        sources.validate_uri("sharepoint://host/Documents", _sharepoint_settings())
+    with pytest.raises(sources.SourceError, match="credentials"):
+        sources.validate_uri(SP_URI, Settings())
+    with pytest.raises(sources.SourceError):
+        sources.validate_uri("gdrive://short", _gdrive_settings(tmp_path))
+
+
+def test_malformed_uri_fails_before_touching_qdrant(monkeypatch) -> None:
+    """A bad URI must not surface as a Qdrant connection error."""
+
+    def unreachable(settings):
+        raise AssertionError("Qdrant must not be contacted for an invalid URI")
+
+    monkeypatch.setattr(pipeline, "_qdrant_client", unreachable)
+    with pytest.raises(sources.SourceError):
+        pipeline.ingest_source("gdrive://short", settings=Settings())
+
+
+# --- ingest_source routing ------------------------------------------------
+
+
+@pytest.fixture
+def captured_ingest(monkeypatch):
+    """Stub out Qdrant so ingest_source can be observed without a server."""
+    captured: dict = {}
+
+    def _ingest_documents(docs, client, settings, current_sources, orphan_prefix):
+        captured["docs"] = docs
+        captured["current_sources"] = current_sources
+        captured["orphan_prefix"] = orphan_prefix
+        return {"chunks": len(docs), "deleted": 0}
+
+    monkeypatch.setattr(pipeline, "_qdrant_client", lambda settings: object())
+    monkeypatch.setattr(pipeline, "ensure_collection", lambda client, settings: None)
+    monkeypatch.setattr(pipeline, "_ingest_documents", _ingest_documents)
+    return captured
+
+
+def test_local_path_is_delegated_to_ingest_path(monkeypatch) -> None:
+    """A bare path must keep its existing behaviour, unchanged."""
+    seen: dict = {}
+
+    def fake_ingest_path(path, settings=None):
+        seen["path"] = path
+        return {"chunks": 3, "deleted": 0}
+
+    monkeypatch.setattr(pipeline, "ingest_path", fake_ingest_path)
+    result = pipeline.ingest_source("docs/sample", settings=Settings())
+    assert seen["path"] == Path("docs/sample")
+    assert result == {"chunks": 3, "deleted": 0}
+
+
+def test_remote_documents_are_indexed_under_their_uri(
+    captured_ingest, monkeypatch, tmp_path
+) -> None:
+    downloaded = tmp_path / "scratch.md"
+    downloaded.write_text("# hello")
+    fetched = [sources.FetchedFile(downloaded, f"{SP_URI}/rh/a.md")]
+    monkeypatch.setattr(pipeline, "fetch", lambda uri, dest, settings: fetched)
+
+    result = pipeline.ingest_source(SP_URI, settings=_sharepoint_settings())
+
+    doc = captured_ingest["docs"][0]
+    # The scratch file is temporary; the URI is what identifies the document.
+    assert doc.metadata["source"] == f"{SP_URI}/rh/a.md"
+    assert captured_ingest["current_sources"] == {f"{SP_URI}/rh/a.md"}
+    assert captured_ingest["orphan_prefix"] == f"{SP_URI}/"
+    assert result["chunks"] == 1
+
+
+def test_downloads_are_discarded_after_ingest(
+    captured_ingest, monkeypatch, tmp_path
+) -> None:
+    """The temporary directory must not survive the run."""
+    holder: dict = {}
+
+    def fake_fetch(uri, dest_dir, settings):
+        holder["dest"] = dest_dir
+        downloaded = dest_dir / "a.md"
+        downloaded.write_text("# hello")
+        return [sources.FetchedFile(downloaded, f"{uri}/a.md")]
+
+    monkeypatch.setattr(pipeline, "fetch", fake_fetch)
+    pipeline.ingest_source(SP_URI, settings=_sharepoint_settings())
+    assert not holder["dest"].exists()
+
+
+def test_remote_fetch_failure_still_cleans_up(
+    captured_ingest, monkeypatch, tmp_path
+) -> None:
+    holder: dict = {}
+
+    def failing_fetch(uri, dest_dir, settings):
+        holder["dest"] = dest_dir
+        raise sources.SourceError("boom")
+
+    monkeypatch.setattr(pipeline, "fetch", failing_fetch)
+    with pytest.raises(sources.SourceError):
+        pipeline.ingest_source(SP_URI, settings=_sharepoint_settings())
+    assert not holder["dest"].exists()

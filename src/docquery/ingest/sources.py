@@ -227,15 +227,18 @@ def _list_sharepoint(
     return items
 
 
-def fetch_sharepoint(uri: str, dest_dir: Path, settings: Settings) -> list[FetchedFile]:
+def _validate_sharepoint(uri: str, settings: Settings) -> tuple[str, str, str, str]:
     if not (
         settings.sharepoint_tenant_id
         and settings.sharepoint_client_id
         and settings.sharepoint_client_secret
     ):
         raise SourceError("SharePoint credentials are not configured")
+    return _parse_sharepoint_uri(uri)
 
-    host, site, drive, folder = _parse_sharepoint_uri(uri)
+
+def fetch_sharepoint(uri: str, dest_dir: Path, settings: Settings) -> list[FetchedFile]:
+    host, site, drive, folder = _validate_sharepoint(uri, settings)
     base_uri = uri.rstrip("/")
     max_bytes = settings.source_max_file_mb * 1024 * 1024
     fetched: list[FetchedFile] = []
@@ -340,11 +343,14 @@ def _list_gdrive(
     return items
 
 
-def fetch_gdrive(uri: str, dest_dir: Path, settings: Settings) -> list[FetchedFile]:
+def _validate_gdrive(uri: str, settings: Settings) -> str:
     if not settings.gdrive_service_account_file:
         raise SourceError("Google Drive credentials are not configured")
+    return _parse_gdrive_uri(uri)
 
-    folder_id = _parse_gdrive_uri(uri)
+
+def fetch_gdrive(uri: str, dest_dir: Path, settings: Settings) -> list[FetchedFile]:
+    folder_id = _validate_gdrive(uri, settings)
     base_uri = uri.rstrip("/")
     max_bytes = settings.source_max_file_mb * 1024 * 1024
     fetched: list[FetchedFile] = []
@@ -373,11 +379,29 @@ FETCHERS: dict[str, Callable[[str, Path, Settings], list[FetchedFile]]] = {
     "gdrive": fetch_gdrive,
 }
 
+_VALIDATORS: dict[str, Callable[[str, Settings], object]] = {
+    "sharepoint": _validate_sharepoint,
+    "gdrive": _validate_gdrive,
+}
+
 
 def source_scheme(source: str) -> str | None:
     """Return the remote scheme, or None when source is a local path."""
     scheme = urlsplit(source).scheme
     return scheme if scheme in FETCHERS else None
+
+
+def validate_uri(uri: str, settings: Settings) -> None:
+    """Check a remote URI's shape and that its credentials are configured.
+
+    Separate from fetch so callers can reject a bad URI up front — the API
+    answers 400 instead of accepting a job that is certain to fail, and the CLI
+    reports the real problem instead of whatever it hits first.
+    """
+    scheme = source_scheme(uri)
+    if scheme is None:
+        raise SourceError(f"not a remote source URI: {uri}")
+    _VALIDATORS[scheme](uri, settings)
 
 
 def fetch(uri: str, dest_dir: Path, settings: Settings) -> list[FetchedFile]:

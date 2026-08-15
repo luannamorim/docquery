@@ -207,6 +207,20 @@ def iter_ingestable_files(path: Path, settings: Settings | None = None) -> list[
     return files
 
 
+def is_skippable_load_error(error: Exception, settings: Settings) -> bool:
+    """Whether one unreadable file may be skipped instead of failing the run.
+
+    Only Docling-exclusive formats qualify: they have no legacy parser, so a
+    single unconvertible file should not abort a whole folder. Legacy formats
+    keep aborting, as they always have.
+    """
+    if not settings.docling_enabled:
+        return False
+    from docquery.ingest.docling_loader import DoclingConversionError
+
+    return isinstance(error, DoclingConversionError)
+
+
 def load_directory(path: Path, settings: Settings | None = None) -> list[Document]:
     settings = settings or get_settings()
     docs: list[Document] = []
@@ -214,14 +228,8 @@ def load_directory(path: Path, settings: Settings | None = None) -> list[Documen
         try:
             docs.append(load_document(file_path, settings))
         except Exception as e:
-            # Only Docling-exclusive formats are skipped: they have no legacy
-            # parser, so one unreadable file should not abort the whole run.
-            # Legacy formats keep aborting, as they always have.
-            if settings.docling_enabled:
-                from docquery.ingest.docling_loader import DoclingConversionError
-
-                if isinstance(e, DoclingConversionError):
-                    logger.error("Skipping %s: %s", file_path, e)
-                    continue
+            if is_skippable_load_error(e, settings):
+                logger.error("Skipping %s: %s", file_path, e)
+                continue
             raise
     return docs
