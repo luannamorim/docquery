@@ -3,16 +3,7 @@
   "permissions": {
     "deny": [
       "Read(./.env)",
-      "Read(./.env.local*)",
-      "Read(./.env.dev*)",
-      "Read(./.env.hml*)",
-      "Read(./.env.homolog*)",
-      "Read(./.env.prod*)",
-      "Read(./.env.qa*)",
-      "Read(./.env.stag*)",
-      "Read(./.env.test*)",
-      "Read(./.env.secret*)",
-      "Read(./.env.bak*)",
+      "Read(./.env.*)",
       "Bash(rm -rf *)",
       "Bash(sudo *)"
     ]
