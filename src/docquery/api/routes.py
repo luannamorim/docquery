@@ -19,7 +19,13 @@ from docquery.api.schemas import (
 )
 from docquery.config import Settings, get_settings
 from docquery.generate.rag import query_pipeline
-from docquery.ingest.pipeline import ingest_path
+from docquery.ingest.pipeline import ingest_source
+from docquery.ingest.sources import (
+    SourceError,
+    is_allowed_uri,
+    source_scheme,
+    validate_uri,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -107,14 +113,34 @@ class _TaskStore:
 _tasks = _TaskStore()
 
 
-def _run_ingest(task_id: str, path: Path, settings: Settings) -> None:
+def _run_ingest(task_id: str, source: str, settings: Settings) -> None:
     _tasks.update(task_id, status="running")
     try:
-        result = ingest_path(path, settings=settings)
+        result = ingest_source(source, settings=settings)
         _tasks.update(task_id, status="done", **result)
     except Exception:
         logger.exception("Ingest task %s failed", task_id)
         _tasks.update(task_id, status="error", error="ingestion failed")
+
+
+def _checked_remote_source(uri: str, settings: Settings) -> str:
+    """Authorize a remote ingest URI, or raise 400.
+
+    The allowlist is checked before anything else, so a caller cannot use the
+    error message to learn which connectors this deployment has credentials for.
+    It is empty by default: the endpoint pulls from no remote location until an
+    operator names one, the remote counterpart of the ingest_root check.
+    """
+    if not is_allowed_uri(uri, settings.ingest_allowed_source_prefixes):
+        raise HTTPException(
+            status_code=400,
+            detail="source URI is not under an allowed source prefix",
+        )
+    try:
+        validate_uri(uri, settings)
+    except SourceError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return uri
 
 
 @system_router.get("/health", tags=["system"])
@@ -148,18 +174,25 @@ def ingest(
     background_tasks: BackgroundTasks,
     settings: SettingsDep,
 ) -> IngestJobResponse:
-    root = settings.ingest_root.resolve()
-    try:
-        path = Path(request.path).resolve(strict=True)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Path not found: {request.path}")
-    if not path.is_relative_to(root):
-        raise HTTPException(
-            status_code=400, detail="path must live under configured ingest_root"
-        )
+    if source_scheme(request.path) is not None:
+        source = _checked_remote_source(request.path, settings)
+    else:
+        root = settings.ingest_root.resolve()
+        try:
+            path = Path(request.path).resolve(strict=True)
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404, detail=f"Path not found: {request.path}"
+            )
+        if not path.is_relative_to(root):
+            raise HTTPException(
+                status_code=400, detail="path must live under configured ingest_root"
+            )
+        source = str(path)
+
     task_id = str(uuid.uuid4())
     _tasks.create(task_id, settings)
-    background_tasks.add_task(_run_ingest, task_id, path, settings)
+    background_tasks.add_task(_run_ingest, task_id, source, settings)
     return IngestJobResponse(task_id=task_id, status="pending")
 
 

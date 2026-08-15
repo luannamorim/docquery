@@ -93,7 +93,7 @@ def test_ingest_path_not_found() -> None:
 def test_ingest_success(ingest_root) -> None:
     (ingest_root / "test.md").write_text("# Hello\n\nWorld.")
     mock_result = {"chunks": 3, "deleted": 0}
-    with patch("docquery.api.routes.ingest_path", return_value=mock_result) as mock:
+    with patch("docquery.api.routes.ingest_source", return_value=mock_result) as mock:
         response = client.post("/ingest", json={"path": str(ingest_root)})
     assert response.status_code == 202
     data = response.json()
@@ -110,10 +110,58 @@ def test_ingest_path_outside_root_rejected(ingest_root, tmp_path_factory) -> Non
     assert "ingest_root" in response.json()["detail"]
 
 
+@pytest.fixture
+def remote_ingest(tmp_path):
+    """Settings that allow one SharePoint prefix and configure its credentials."""
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        ingest_root=tmp_path,
+        ingest_allowed_source_prefixes=["sharepoint://host/sites/Eng/Docs"],
+        sharepoint_tenant_id="tenant",
+        sharepoint_client_id="client",
+        sharepoint_client_secret="secret",
+    )
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+
+def test_ingest_accepts_an_allowlisted_uri(remote_ingest) -> None:
+    mock_result = {"chunks": 2, "deleted": 0}
+    uri = "sharepoint://host/sites/Eng/Docs/policies"
+    with patch("docquery.api.routes.ingest_source", return_value=mock_result) as mock:
+        response = client.post("/ingest", json={"path": uri})
+    assert response.status_code == 202
+    assert mock.call_args[0][0] == uri
+
+
+def test_ingest_rejects_a_uri_outside_the_allowlist(remote_ingest) -> None:
+    response = client.post(
+        "/ingest", json={"path": "sharepoint://host/sites/Other/Docs"}
+    )
+    assert response.status_code == 400
+    assert "allow" in response.json()["detail"].lower()
+
+
+def test_ingest_rejects_remote_uris_by_default(ingest_root) -> None:
+    """With no allowlist configured, the endpoint pulls from nowhere remote."""
+    response = client.post(
+        "/ingest", json={"path": "sharepoint://host/sites/Eng/Docs"}
+    )
+    assert response.status_code == 400
+
+
+def test_ingest_rejects_a_malformed_uri(remote_ingest) -> None:
+    response = client.post(
+        "/ingest", json={"path": "sharepoint://host/sites/Eng/Docs/../../etc"}
+    )
+    assert response.status_code == 400
+
+
 def test_ingest_status_done(ingest_root) -> None:
     (ingest_root / "test.md").write_text("# Hello\n\nWorld.")
     mock_result = {"chunks": 3, "deleted": 0}
-    with patch("docquery.api.routes.ingest_path", return_value=mock_result):
+    with patch("docquery.api.routes.ingest_source", return_value=mock_result):
         post_response = client.post("/ingest", json={"path": str(ingest_root)})
     task_id = post_response.json()["task_id"]
     status_response = client.get(f"/ingest/{task_id}")

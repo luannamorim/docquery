@@ -459,6 +459,33 @@ def test_malformed_uri_fails_before_touching_qdrant(monkeypatch) -> None:
         pipeline.ingest_source("gdrive://short", settings=Settings())
 
 
+# --- allowlist ------------------------------------------------------------
+
+
+def test_allowlist_matches_the_prefix_and_below() -> None:
+    prefixes = ["sharepoint://host/sites/Eng/Docs"]
+    assert sources.is_allowed_uri("sharepoint://host/sites/Eng/Docs", prefixes)
+    assert sources.is_allowed_uri("sharepoint://host/sites/Eng/Docs/rh", prefixes)
+
+
+def test_allowlist_respects_path_boundaries() -> None:
+    """A prefix must not authorise a sibling that merely starts with it."""
+    prefixes = ["sharepoint://host/sites/Eng"]
+    assert not sources.is_allowed_uri("sharepoint://host/sites/Engineering", prefixes)
+
+
+def test_allowlist_is_empty_by_default() -> None:
+    assert not sources.is_allowed_uri(SP_URI, [])
+
+
+def test_relative_segments_are_rejected() -> None:
+    """Otherwise an allowlisted prefix could address a folder outside itself."""
+    with pytest.raises(sources.SourceError, match="relative"):
+        sources.validate_uri(
+            "sharepoint://host/sites/Eng/Docs/../../Secret", _sharepoint_settings()
+        )
+
+
 # --- ingest_source routing ------------------------------------------------
 
 

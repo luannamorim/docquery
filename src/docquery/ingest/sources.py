@@ -158,6 +158,10 @@ def _parse_sharepoint_uri(uri: str) -> tuple[str, str, str, str]:
             "malformed sharepoint URI; expected "
             "sharepoint://<host>/sites/<site>/<drive>[/<folder>]"
         )
+    if any(part in ("..", ".") for part in parts):
+        # The allowlist authorises a URI by its prefix, so a relative segment
+        # would let an authorised prefix address a folder outside it.
+        raise SourceError("sharepoint URI must not contain relative path segments")
     return split.netloc, parts[1], parts[2], "/".join(parts[3:])
 
 
@@ -389,6 +393,20 @@ def source_scheme(source: str) -> str | None:
     """Return the remote scheme, or None when source is a local path."""
     scheme = urlsplit(source).scheme
     return scheme if scheme in FETCHERS else None
+
+
+def is_allowed_uri(uri: str, allowed_prefixes: list[str]) -> bool:
+    """Whether uri falls under one of the allowed prefixes.
+
+    Matched on path boundaries, not raw string prefixes: otherwise allowing
+    ".../sites/Eng" would also authorise ".../sites/Engineering-Confidential".
+    An empty allowlist allows nothing, which is the intended default.
+    """
+    for prefix in allowed_prefixes:
+        base = prefix.rstrip("/")
+        if uri == base or uri.startswith(base + "/"):
+            return True
+    return False
 
 
 def validate_uri(uri: str, settings: Settings) -> None:
