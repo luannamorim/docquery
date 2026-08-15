@@ -1,0 +1,133 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 3 /Kids [3 0 R 5 0 R 7 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R /F2 10 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 874 >>
+stream
+BT /F2 17 Tf 72 724 Td 23 TL
+(Chapter 1: Ingestion Subsystem) Tj
+ET
+BT /F1 11 Tf 72 688 Td 17 TL
+(This chapter documents the ingestion subsystem of the platform and the) Tj
+T*
+(operational duties that belong to the team that owns it. The service) Tj
+T*
+(reads its configuration at startup and refuses to boot when a required) Tj
+T*
+(value is missing, which keeps a partial deployment from serving traffic.) Tj
+T*
+(Operators are expected to review the dashboards after every release and) Tj
+T*
+(record any anomaly in the shared incident log before closing the change.) Tj
+T*
+(Routine maintenance happens during the weekly window agreed with the) Tj
+T*
+(platform group, and emergency work follows the on-call escalation path.) Tj
+T*
+() Tj
+T*
+(The verification marker for this chapter is ALPHA-PAGE-ONE, and that marker) Tj
+T*
+(appears on no other page of this document.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R /F2 10 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 874 >>
+stream
+BT /F2 17 Tf 72 724 Td 23 TL
+(Chapter 2: Retrieval Subsystem) Tj
+ET
+BT /F1 11 Tf 72 688 Td 17 TL
+(This chapter documents the retrieval subsystem of the platform and the) Tj
+T*
+(operational duties that belong to the team that owns it. The service) Tj
+T*
+(reads its configuration at startup and refuses to boot when a required) Tj
+T*
+(value is missing, which keeps a partial deployment from serving traffic.) Tj
+T*
+(Operators are expected to review the dashboards after every release and) Tj
+T*
+(record any anomaly in the shared incident log before closing the change.) Tj
+T*
+(Routine maintenance happens during the weekly window agreed with the) Tj
+T*
+(platform group, and emergency work follows the on-call escalation path.) Tj
+T*
+() Tj
+T*
+(The verification marker for this chapter is BRAVO-PAGE-TWO, and that marker) Tj
+T*
+(appears on no other page of this document.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R /F2 10 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 880 >>
+stream
+BT /F2 17 Tf 72 724 Td 23 TL
+(Chapter 3: Evaluation Subsystem) Tj
+ET
+BT /F1 11 Tf 72 688 Td 17 TL
+(This chapter documents the evaluation subsystem of the platform and the) Tj
+T*
+(operational duties that belong to the team that owns it. The service) Tj
+T*
+(reads its configuration at startup and refuses to boot when a required) Tj
+T*
+(value is missing, which keeps a partial deployment from serving traffic.) Tj
+T*
+(Operators are expected to review the dashboards after every release and) Tj
+T*
+(record any anomaly in the shared incident log before closing the change.) Tj
+T*
+(Routine maintenance happens during the weekly window agreed with the) Tj
+T*
+(platform group, and emergency work follows the on-call escalation path.) Tj
+T*
+() Tj
+T*
+(The verification marker for this chapter is CHARLIE-PAGE-THREE, and that marker) Tj
+T*
+(appears on no other page of this document.) Tj
+ET
+endstream
+endobj
+9 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+10 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000127 00000 n 
+0000000264 00000 n 
+0000001189 00000 n 
+0000001326 00000 n 
+0000002251 00000 n 
+0000002388 00000 n 
+0000003319 00000 n 
+0000003389 00000 n 
+trailer
+<< /Size 11 /Root 1 0 R >>
+startxref
+3465
+%%EOF
