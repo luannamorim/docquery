@@ -20,6 +20,7 @@ from qdrant_client.models import (
 )
 
 from docquery.config import Settings, get_settings
+from docquery.folders import folder_segments
 from docquery.ingest.chunker import Chunk, chunk_document
 from docquery.ingest.loader import (
     is_skippable_load_error,
@@ -55,9 +56,10 @@ def ensure_collection(client: QdrantClient, settings: Settings) -> None:
             field_name="clearance_level",
             field_schema=PayloadSchemaType.INTEGER,
         )
-        # Filterable taxonomy/facets (doc_type is server-side classified; entity
-        # and tags are descriptive). KEYWORD indexes also cover array values.
-        for field_name in ("doc_type", "entity", "tags"):
+        # Filterable taxonomy/facets (doc_type and folders are server-side
+        # derived; entity and tags are descriptive). KEYWORD indexes also cover
+        # array values, so each folder segment is matchable on its own.
+        for field_name in ("doc_type", "folders", "entity", "tags"):
             client.create_payload_index(
                 collection_name=settings.qdrant_collection,
                 field_name=field_name,
@@ -118,6 +120,7 @@ def ingest_chunks(
                 "content_type": chunk.metadata.get("content_type", "text"),
                 "clearance_level": int(chunk.metadata.get("clearance_level", 0)),
                 "doc_type": chunk.metadata.get("doc_type", ""),
+                "folders": chunk.metadata.get("folders", []),
                 "entity": chunk.metadata.get("entity", ""),
                 "tags": chunk.metadata.get("tags", []),
             },
@@ -305,10 +308,15 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     if path.is_dir():
         current_sources = {str(f) for f in iter_ingestable_files(path, settings)}
         docs = load_directory(path, settings=settings)
+        for doc in docs:
+            relative = Path(str(doc.metadata["source"])).relative_to(path)
+            doc.metadata["folders"] = folder_segments(relative.as_posix())
         orphan_prefix = orphan_prefix_for(path)
     else:
         current_sources = set()
         docs = [load_document(path, settings=settings)]
+        # A single file is its own root: there is no folder structure to face.
+        docs[0].metadata["folders"] = []
         orphan_prefix = None
 
     logger.info("Loaded %d document(s) from %s", len(docs), path)
@@ -334,6 +342,7 @@ def ingest_source(source: str, settings: Settings | None = None) -> dict[str, in
     client = _qdrant_client(settings)
     ensure_collection(client, settings)
 
+    base = source.rstrip("/")
     with tempfile.TemporaryDirectory(prefix="docquery-ingest-") as tmpdir:
         fetched = fetch(source, Path(tmpdir), settings)
         docs = []
@@ -346,6 +355,9 @@ def ingest_source(source: str, settings: Settings | None = None) -> dict[str, in
                     continue
                 raise
             doc.metadata["source"] = item.source_uri
+            # Fetchers build source_uri as f"{base}/{relative}", so stripping the
+            # base leaves exactly the path relative to the folder that was asked for.
+            doc.metadata["folders"] = folder_segments(item.source_uri[len(base) + 1 :])
             docs.append(doc)
 
         logger.info("Loaded %d document(s) from %s", len(docs), source)

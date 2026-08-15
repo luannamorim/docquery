@@ -18,10 +18,11 @@ MetaValue = str | int | list[str]
 # they help filtering/citation but do not gate access. Scalars become strings;
 # "tags" becomes a list of strings.
 _DESCRIPTIVE_SCALARS = ("entity", "title", "effective_date")
-# Fields that gate access/scope are classified server-side at ingest time and
-# are intentionally NOT read from frontmatter (untrusted authors must not
+# Fields that gate access/scope are derived server-side at ingest time — from
+# settings policy (clearance) or from the document's path (folders) — and are
+# intentionally NOT read from frontmatter (untrusted authors must not
 # self-label). They are logged and dropped if present.
-_ACCESS_FIELDS = ("clearance", "doc_type")
+_ACCESS_FIELDS = ("clearance", "doc_type", "folders")
 
 
 @dataclass
@@ -65,8 +66,8 @@ def _parse_frontmatter(text: str) -> tuple[str, dict]:
 def _descriptive_metadata(parsed: dict, source: str) -> dict[str, MetaValue]:
     """Extract the allowlisted descriptive fields, normalizing their types.
 
-    Access-gating fields (clearance, doc_type) in frontmatter are ignored with
-    a warning — they are set server-side by settings policy at ingest time.
+    Access-gating fields (see _ACCESS_FIELDS) in frontmatter are ignored with a
+    warning — they are derived server-side at ingest time.
     """
     meta: dict[str, MetaValue] = {}
     for key in _DESCRIPTIVE_SCALARS:
@@ -82,8 +83,8 @@ def _descriptive_metadata(parsed: dict, source: str) -> dict[str, MetaValue]:
     for key in _ACCESS_FIELDS:
         if key in parsed:
             logger.warning(
-                "Frontmatter %r on %s is ignored; %s is classified server-side "
-                "by settings policy at ingest time",
+                "Frontmatter %r on %s is ignored; %s is derived server-side "
+                "at ingest time",
                 key,
                 source,
                 key,
