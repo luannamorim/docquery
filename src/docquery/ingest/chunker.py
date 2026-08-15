@@ -107,6 +107,15 @@ def chunk_document(doc: Document, settings: Settings | None = None) -> list[Chun
     """
     settings = settings or get_settings()
 
+    # Documents parsed by Docling carry a structured DoclingDocument, which the
+    # Docling chunker splits along real layout boundaries (headings, tables,
+    # pages). Flattening it back to text here would discard exactly what
+    # Docling was added to recover.
+    if doc.dl_doc is not None:
+        from docquery.ingest.docling_loader import chunk_with_docling
+
+        return chunk_with_docling(doc, settings)
+
     match settings.chunker_strategy:
         case "markdown":
             if doc.metadata.get("file_type") == ".md":

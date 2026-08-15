@@ -37,6 +37,33 @@ class Settings(BaseSettings):
     ] = "percentile"
     semantic_breakpoint_threshold_amount: float = 95.0
 
+    # Docling parsing
+    # docling_enabled gates the whole Docling path: when False, load_document
+    # dispatches through LOADERS exactly as before and the docling package is
+    # never imported. .txt and .md always stay on the legacy path — Docling has
+    # no plain-text backend, and the markdown path carries frontmatter parsing
+    # and heading promotion that must not regress.
+    docling_enabled: bool = False
+    # OCR runs only over bitmap regions, so native-text PDFs pay no extra cost.
+    docling_ocr_enabled: bool = True
+    # RapidOCR (bundled with docling, torch backend) uses a single language per
+    # run; extra values are ignored. "en" selects the PP-OCRv6 recognizer, whose
+    # character set also covers Portuguese diacritics, so one model serves both
+    # languages. It is also the recognizer the Docker image prefetches — a
+    # script-family value such as "latin" resolves to a different (PP-OCRv4)
+    # checkpoint that is not in the image and would fail offline.
+    docling_ocr_langs: list[str] = ["en"]
+    # TableFormer structure recovery. CPU-heavy — disable for text-only corpora.
+    docling_table_structure: bool = True
+    # Conversion limits. Exceeding any of these fails the document with a clear
+    # error instead of exhausting memory on a hostile or oversized input.
+    docling_max_file_mb: int = 50
+    docling_max_pages: int = 200
+    docling_timeout_seconds: float = 300.0
+    # Local model weights, set in the Docker image so conversion never reaches
+    # the network at runtime. Also read natively by docling from the same env var.
+    docling_artifacts_path: Path | None = None
+
     # Heading promotion for non-markdown procedural docs.
     # Patterns that match at line start are rewritten as "## ..." so the
     # markdown pipeline can extract them as sections.

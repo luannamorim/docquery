@@ -103,6 +103,12 @@ def ingest_chunks(
                 "chunk_index": int(chunk.metadata.get("chunk_index", 0)),
                 "file_type": chunk.metadata.get("file_type", ""),
                 "section": chunk.metadata.get("section", ""),
+                "title": chunk.metadata.get("title", ""),
+                # Page provenance from Docling; 0 means the format has no pages
+                # (DOCX/PPTX/XLSX) or the chunk carries no provenance.
+                "page_number": int(chunk.metadata.get("page_number", 0)),
+                # text | table | figure — "text" for the legacy parsers.
+                "content_type": chunk.metadata.get("content_type", "text"),
                 "clearance_level": int(chunk.metadata.get("clearance_level", 0)),
                 "doc_type": chunk.metadata.get("doc_type", ""),
                 "entity": chunk.metadata.get("entity", ""),
@@ -238,7 +244,7 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     ensure_collection(client, settings)
 
     if path.is_dir():
-        current_sources = {str(f) for f in iter_ingestable_files(path)}
+        current_sources = {str(f) for f in iter_ingestable_files(path, settings)}
         docs = load_directory(path, settings=settings)
     else:
         current_sources = set()

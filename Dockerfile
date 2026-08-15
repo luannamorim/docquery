@@ -4,6 +4,14 @@ WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:0.6.14 /uv /usr/local/bin/uv
 
+# Docling's vision models import OpenCV, which links against these X/GL
+# libraries even when running headless. Needed here as well as at runtime
+# because the model prefetch below imports cv2.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 libxcb1 libsm6 libxext6 libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Large wheels (torch ~180MB, scipy ~34MB) can exceed uv's default 30s
 # download timeout on slower connections.
 ENV UV_HTTP_TIMEOUT=300
@@ -15,13 +23,25 @@ RUN uv sync --no-dev --no-install-project
 COPY src/ src/
 RUN uv sync --no-dev
 
+# Fetch Docling's model weights at build time so conversion never reaches the
+# network at runtime. Only the models the pipeline actually uses: layout
+# analysis, TableFormer for table structure, and RapidOCR for scanned pages.
+RUN /app/.venv/bin/docling-tools models download \
+    -o /opt/docling-models layout tableformer rapidocr
+
 # ---
 
 FROM python:3.12.11-slim
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 libxcb1 libsm6 libxext6 libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app/.venv .venv
+COPY --from=builder /opt/docling-models /opt/docling-models
 COPY src/ src/
 
 RUN useradd --create-home appuser \
@@ -30,6 +50,14 @@ RUN useradd --create-home appuser \
 USER appuser
 
 ENV PATH="/app/.venv/bin:$PATH"
+ENV DOCLING_ARTIFACTS_PATH=/opt/docling-models
+
+# Docling's layout model goes through torch.compile, which shells out to a C++
+# compiler at runtime. The slim image has none, and every conversion would fail
+# with InvalidCxxCompiler and silently fall back to the legacy parser. Running
+# eager avoids that without shipping a toolchain, and also skips the
+# per-process compilation cost — worth more here than compiled CPU kernels.
+ENV TORCHDYNAMO_DISABLE=1
 
 EXPOSE 8000
 
