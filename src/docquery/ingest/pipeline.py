@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import logging
+import tempfile
 from pathlib import Path
 
 from qdrant_client import QdrantClient
@@ -20,7 +21,13 @@ from qdrant_client.models import (
 
 from docquery.config import Settings, get_settings
 from docquery.ingest.chunker import Chunk, chunk_document
-from docquery.ingest.loader import iter_ingestable_files, load_directory, load_document
+from docquery.ingest.loader import (
+    is_skippable_load_error,
+    iter_ingestable_files,
+    load_directory,
+    load_document,
+)
+from docquery.ingest.sources import SourceError, fetch, source_scheme, validate_uri
 from docquery.ingest.sparse import sparse_vector
 from docquery.retrieve.embedder import embed_texts
 
@@ -128,14 +135,24 @@ def ingest_chunks(
         )
 
 
+def orphan_prefix_for(location: Path | str) -> str:
+    """Bound a container's source prefix with a separator.
+
+    Sources are matched by prefix, so an unterminated "docs/sample" also claims
+    "docs/sample-old/..." and would delete it as an orphan. Works the same for
+    remote URIs, whose sources are "<folder-uri>/<relative path>".
+    """
+    text = str(location)
+    return text if text.endswith("/") else text + "/"
+
+
 def delete_orphan_chunks(
     client: QdrantClient,
     settings: Settings,
-    directory: Path,
+    prefix: str,
     current_sources: set[str],
 ) -> int:
-    """Delete chunks for sources no longer in directory. Returns deleted count."""
-    prefix = str(directory)
+    """Delete chunks under prefix whose source is gone. Returns deleted count."""
     indexed_sources: set[str] = set()
     offset = None
 
@@ -225,10 +242,8 @@ def _apply_type_policy(docs: list, settings: Settings) -> None:
         logger.info("Doc type applied: source=%s doc_type=%s", source, doc_type)
 
 
-def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
-    """Ingest a file or directory into Qdrant. Returns chunk and deleted counts."""
-    settings = settings or get_settings()
-    client = QdrantClient(
+def _qdrant_client(settings: Settings) -> QdrantClient:
+    return QdrantClient(
         host=settings.qdrant_host,
         port=settings.qdrant_port,
         api_key=(
@@ -241,17 +256,22 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
         # handshake against the non-TLS server. Keep the connection on HTTP.
         https=False,
     )
-    ensure_collection(client, settings)
 
-    if path.is_dir():
-        current_sources = {str(f) for f in iter_ingestable_files(path, settings)}
-        docs = load_directory(path, settings=settings)
-    else:
-        current_sources = set()
-        docs = [load_document(path, settings=settings)]
 
-    logger.info("Loaded %d document(s) from %s", len(docs), path)
+def _ingest_documents(
+    docs: list,
+    client: QdrantClient,
+    settings: Settings,
+    current_sources: set[str],
+    orphan_prefix: str | None,
+) -> dict[str, int]:
+    """Classify, chunk and upsert documents; prune orphans under orphan_prefix.
 
+    Shared by every ingest entry point, so local directories and remote folders
+    get identical classification, deduplication and orphan semantics. A None
+    orphan_prefix means the caller ingested a single document and nothing else
+    under it should be pruned.
+    """
     _apply_clearance_policy(docs, settings)
     _apply_type_policy(docs, settings)
 
@@ -269,25 +289,100 @@ def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
     )
 
     deleted = (
-        delete_orphan_chunks(client, settings, path, current_sources)
-        if path.is_dir()
+        delete_orphan_chunks(client, settings, orphan_prefix, current_sources)
+        if orphan_prefix is not None
         else 0
     )
     return {"chunks": len(all_chunks), "deleted": deleted}
 
 
+def ingest_path(path: Path, settings: Settings | None = None) -> dict[str, int]:
+    """Ingest a local file or directory into Qdrant. Returns chunk/deleted counts."""
+    settings = settings or get_settings()
+    client = _qdrant_client(settings)
+    ensure_collection(client, settings)
+
+    if path.is_dir():
+        current_sources = {str(f) for f in iter_ingestable_files(path, settings)}
+        docs = load_directory(path, settings=settings)
+        orphan_prefix = orphan_prefix_for(path)
+    else:
+        current_sources = set()
+        docs = [load_document(path, settings=settings)]
+        orphan_prefix = None
+
+    logger.info("Loaded %d document(s) from %s", len(docs), path)
+    return _ingest_documents(docs, client, settings, current_sources, orphan_prefix)
+
+
+def ingest_source(source: str, settings: Settings | None = None) -> dict[str, int]:
+    """Ingest a local path or a remote folder URI. Returns chunk/deleted counts.
+
+    Remote folders are pulled into a temporary directory, parsed by the ordinary
+    loaders and discarded. Each document is indexed under its source URI rather
+    than the scratch path it was written to, so deduplication, orphan pruning and
+    the prefix policies behave exactly as they do for local files.
+    """
+    settings = settings or get_settings()
+    if source_scheme(source) is None:
+        return ingest_path(Path(source), settings=settings)
+
+    # Up front, so a malformed URI or missing credential is reported as itself
+    # rather than as whatever the run happens to hit first.
+    validate_uri(source, settings)
+
+    client = _qdrant_client(settings)
+    ensure_collection(client, settings)
+
+    with tempfile.TemporaryDirectory(prefix="docquery-ingest-") as tmpdir:
+        fetched = fetch(source, Path(tmpdir), settings)
+        docs = []
+        for item in fetched:
+            try:
+                doc = load_document(item.local_path, settings=settings)
+            except Exception as e:
+                if is_skippable_load_error(e, settings):
+                    logger.error("Skipping %s: %s", item.source_uri, e)
+                    continue
+                raise
+            doc.metadata["source"] = item.source_uri
+            docs.append(doc)
+
+        logger.info("Loaded %d document(s) from %s", len(docs), source)
+        return _ingest_documents(
+            docs,
+            client,
+            settings,
+            {item.source_uri for item in fetched},
+            orphan_prefix_for(source),
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest documents into Qdrant")
-    parser.add_argument("path", type=Path, help="File or directory to ingest")
+    parser.add_argument(
+        "source",
+        help=(
+            "File or directory to ingest, or a remote folder URI "
+            "(sharepoint://<host>/sites/<site>/<drive>[/<folder>], "
+            "gdrive://<folder id>)"
+        ),
+    )
     args = parser.parse_args()
 
-    if not args.path.exists():
-        parser.error(f"Path does not exist: {args.path}")
+    # Only local sources are checked here; a remote URI is validated by its
+    # fetcher, which is the only thing that can tell whether it resolves.
+    if source_scheme(args.source) is None and not Path(args.source).exists():
+        parser.error(f"Path does not exist: {args.source}")
 
     settings = get_settings()
-    result = ingest_path(args.path, settings=settings)
+    try:
+        result = ingest_source(args.source, settings=settings)
+    except SourceError as e:
+        # A bad URI or a missing credential is operator error, not a crash.
+        parser.error(str(e))
     print(
-        f"Ingested {result['chunks']} chunks from {args.path}"
+        f"Ingested {result['chunks']} chunks from {args.source}"
         f" (deleted {result['deleted']} orphan source(s))"
     )
 

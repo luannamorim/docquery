@@ -28,7 +28,7 @@ The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS ev
 | Gold-set size | 20 questions (low statistical power) | 101 stratified questions: factual, multi-hop, comparative, unanswerable |
 | Chunking strategy | Hardcoded Markdown + Recursive | Configurable via `CHUNKER_STRATEGY=markdown\|recursive\|semantic` |
 | Prompt injection | No input validation — any payload reached the LLM | NFKC-normalized guard, PT-BR/ES patterns, indirect-injection check on retrieved chunks |
-| RBAC | All documents accessible to all users | Server-side `clearance_policy` (path-prefix → level), bound-checked `X-User-Clearance` header, filter applied at retrieve + expand |
+| RBAC | All documents accessible to all users | Server-side `clearance_policy` (path-prefix → level), clearance from a verified Entra ID `roles` claim, filter applied at retrieve + expand |
 
 The tradeoff for hardening instead of starting a new project: five gaps closed in ~1.5 weeks, narrative of "engineer auditing their own work" — which is rarer and more credible in a portfolio than project #N.
 
@@ -205,6 +205,8 @@ uv sync --extra eval
 make eval
 ```
 
+> The quickstart runs unauthenticated: `AUTH_ENABLED` defaults to `false`, and the server logs a warning saying so. To require Entra ID tokens, see [Authentication](#authentication--azure-entra-id). To ingest from SharePoint or Google Drive instead of a local folder, see [Remote Sources](#remote-sources--sharepoint--google-drive).
+
 **Local dev (no Docker):**
 
 ```bash
@@ -225,7 +227,8 @@ make serve
 | Framework      | LangChain, LlamaIndex, custom         | **Thin custom + individual libs**                               | No framework lock-in, explicit pipeline control |
 | Evaluation     | Manual, RAGAS, custom                 | **RAGAS 0.4.x**                                                 | Industry standard, reproducible, comparable metrics |
 | Config         | dotenv, Dynaconf, pydantic-settings   | **pydantic-settings**                                           | Type-safe, env-based, integrates with FastAPI DI |
-| RBAC           | JWT decode, header, body field        | **Server-side `clearance_policy` + `X-User-Clearance` header**  | Honest: no auth service in scope. Classification is server-side (frontmatter ignored), bound-checked header, audit-logged on use |
+| RBAC           | JWT decode, header, body field        | **Server-side `clearance_policy` + Entra ID app roles**         | Classification is server-side (frontmatter ignored); the level comes from a verified `roles` claim, falling back to the bound-checked `X-User-Clearance` header only when `AUTH_ENABLED=false` |
+| Auth           | Custom JWT, Authlib, python-jose, PyJWT | **PyJWT + `PyJWKClient`**                                     | Smallest dependency that validates properly: JWKS caching and key-rotation refetch are built in, `cryptography` comes with it for RS256. python-jose is unmaintained; Authlib ships an OAuth client the API never needs |
 | Injection guard | Llama Guard, NeMo Guardrails, custom | **NFKC-normalized regex validator (guard.py)**                  | Zero latency, zero dependencies, covers OWASP LLM01/LLM06 patterns in EN + PT-BR/ES, NFKC handles fullwidth-Latin evasions; second layer is hardened system prompt; third is `check_context()` over retrieved chunks |
 
 ## Evaluation Results
@@ -287,7 +290,102 @@ curl -X POST http://localhost:8000/query \
 # → "The engineering team targets a mean cost of under $0.002 per query [1]..."
 ```
 
-> In production, `X-User-Clearance` would be derived from a verified JWT claim, not a raw header. The header is bound-checked against `MAX_CLEARANCE_LEVEL` and logged on use; the filter logic is production-ready, the auth transport is not.
+> `X-User-Clearance` is the **demo path**, used only when `AUTH_ENABLED=false`. With auth enabled the level is derived from the token's app roles and the header is ignored — see [Authentication](#authentication--azure-entra-id). The header is bound-checked against `MAX_CLEARANCE_LEVEL` and logged on use.
+
+## Authentication — Azure Entra ID
+
+The API is a **resource server**: it validates bearer tokens the caller already obtained from Entra ID. There is no login endpoint and no client secret here — docquery never requests a token, it only verifies them.
+
+```bash
+AUTH_ENABLED=true                                     # off by default; required in prod
+AZURE_TENANT_ID=<tenant-guid>
+AZURE_CLIENT_ID=<application-guid>                    # the API's own app registration
+AUTH_ROLE_CLEARANCE_MAP='[["clearance.5", 5], ["clearance.10", 10]]'
+AUTH_LEEWAY_SECONDS=60                                # clock-skew tolerance
+```
+
+`AUTH_ENABLED` defaults to `false` so the quickstart runs without a tenant; startup logs a warning when it does. Setting it to `true` without a tenant and client id fails at boot rather than starting up appearing protected.
+
+**Validation.** Signature checked against the tenant's JWKS (`/discovery/v2.0/keys`, cached, refetched automatically on key rotation), algorithm pinned to `RS256`, issuer fixed to `https://login.microsoftonline.com/<tenant>/v2.0`, `exp`/`iss`/`aud` required. Both audience forms are accepted (`<client-id>` and `api://<client-id>`) because which one appears depends on how the caller requested the scope.
+
+**App registration.** Expose the API, define app roles named to match `AUTH_ROLE_CLEARANCE_MAP`, and set `accessTokenAcceptedVersion: 2` in the manifest — v1.0 tokens carry a different issuer (`sts.windows.net`) and are rejected. App roles are read from the `roles` claim, which is populated for both interactive users and client-credentials service principals; delegated scopes (`scp`) are ignored.
+
+**Authorization model.** Every endpoint requires a token except `GET /health`, which stays open for the Docker healthcheck. A valid token with no mapped role is *not* refused — it gets `DEFAULT_CLEARANCE_LEVEL`, because clearance filters what retrieval returns rather than gating the route. The highest matching role wins, capped at `MAX_CLEARANCE_LEVEL`.
+
+```bash
+# Client credentials, for a service-to-service caller
+TOKEN=$(curl -s -X POST \
+  "https://login.microsoftonline.com/$AZURE_TENANT_ID/oauth2/v2.0/token" \
+  -d "client_id=$CALLER_CLIENT_ID" \
+  -d "client_secret=$CALLER_CLIENT_SECRET" \
+  -d "scope=api://$AZURE_CLIENT_ID/.default" \
+  -d "grant_type=client_credentials" | jq -r .access_token)
+
+curl -X POST http://localhost:8000/query \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What are the internal cost targets?"}'
+```
+
+| Response | Meaning |
+|----------|---------|
+| `401` + `WWW-Authenticate: Bearer` | No token presented |
+| `401` + `WWW-Authenticate: Bearer error="invalid_token"` | Expired, wrong audience/issuer, bad signature, unknown `kid` |
+| `503` | The tenant's JWKS endpoint is unreachable — an outage on our side, not a bad token |
+
+Rejections carry a single generic message; the specific reason is logged server-side only, so responses cannot be used to probe the expected issuer or audience.
+
+> `/docs` and `/openapi.json` remain public — the schema is not sensitive here, and Swagger's **Authorize** button makes the API explorable. Pass `docs_url=None` to `FastAPI(...)` if a deployment needs them closed.
+
+## Remote Sources — SharePoint & Google Drive
+
+Ingestion accepts a folder URI as well as a local path. Both the CLI and `POST /ingest` take the same forms:
+
+```bash
+make ingest docs/sample/                                              # local, unchanged
+make ingest "sharepoint://contoso.sharepoint.com/sites/Eng/Documents/policies"
+make ingest "gdrive://1AbCdEfGhIjKlMnOpQrS"
+```
+
+| Scheme | Form | Notes |
+|--------|------|-------|
+| `sharepoint://` | `<host>/sites/<site>/<drive>[/<folder>]` | Resolved through Microsoft Graph; recurses into subfolders |
+| `gdrive://` | `<folder id>` | The id from the folder's Drive URL. A subfolder is addressed by its own id — Drive allows duplicate folder names, so a name path would be ambiguous |
+
+**One-shot pull.** Each run downloads the folder's files into a temporary directory, parses them with the ordinary loaders (Docling needs a real file on disk) and discards them. There is no scheduler and no incremental sync: re-running fetches again, and the existing source-prefix deduplication decides what changed. Files above `SOURCE_MAX_FILE_MB`, unsupported extensions, and Google-native Docs/Sheets (which have no downloadable bytes) are skipped with a log rather than failing the run.
+
+**Sources are URIs.** A remote document is indexed under `<folder-uri>/<relative path>`, not the scratch path it was downloaded to. That means clearance and type policies work on remote content unchanged — they match on source prefixes either way:
+
+```bash
+CLEARANCE_POLICY='[["sharepoint://contoso.sharepoint.com/sites/RH/", 5]]'
+```
+
+> Keep the trailing `/` in prefixes. Prefixes are matched on path boundaries, so `.../sites/Eng` will not match `.../sites/Engineering`, but writing the separator makes the intent explicit.
+
+Orphan pruning works the same way: a document removed from the remote folder disappears from the next listing and its chunks are deleted.
+
+**Configuration.**
+
+```bash
+# Which remote URIs POST /ingest may pull. Empty (the default) accepts none —
+# the CLI is unrestricted, being an operator-level entry point already.
+INGEST_ALLOWED_SOURCE_PREFIXES='["sharepoint://contoso.sharepoint.com/sites/Eng/Documents"]'
+SOURCE_MAX_FILE_MB=50
+
+# SharePoint — Microsoft Graph, client credentials
+SHAREPOINT_TENANT_ID=<tenant-guid>
+SHAREPOINT_CLIENT_ID=<application-guid>
+SHAREPOINT_CLIENT_SECRET=<secret>
+
+# Google Drive — service account key, mounted as a file
+GDRIVE_SERVICE_ACCOUNT_FILE=/app/secrets/gdrive-sa.json
+```
+
+This app registration is **separate from the one that authenticates callers**: it is a confidential client that reads documents, while `AZURE_CLIENT_ID` only identifies this API as a token audience. Grant it the application permission `Sites.Read.All`, or preferably `Sites.Selected` with a per-site grant. For Drive, share the folders with the service account's e-mail address; no domain-wide delegation is needed.
+
+Both APIs are called as plain REST over `httpx`, with `msal` and `google-auth` handling only the credential exchange — `msgraph-sdk` and `google-api-python-client` each pull a large stack to wrap the handful of endpoints used here.
+
+> Large corpora belong on the CLI. `POST /ingest` runs the pull in a background task on a single worker, so a multi-gigabyte folder will occupy it for the duration.
 
 ## Document Types & Scoped Retrieval
 
@@ -362,7 +460,11 @@ The suite covers **47 attacks** across OWASP LLM Top 10 categories — 36 expect
 
 ## API Reference
 
+When `AUTH_ENABLED=true`, every endpoint below except `GET /health` requires `Authorization: Bearer <token>` — see [Authentication](#authentication--azure-entra-id).
+
 ### `GET /health`
+
+Open even with auth enabled, so the container healthcheck can reach it.
 
 ```bash
 curl http://localhost:8000/health
@@ -403,6 +505,14 @@ curl -X POST http://localhost:8000/ingest \
 # {"task_id": "e3b0c442-...", "status": "pending"}
 ```
 
+`path` also accepts a remote folder URI (see [Remote Sources](#remote-sources--sharepoint--google-drive)), which must fall under `INGEST_ALLOWED_SOURCE_PREFIXES`:
+
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"path": "sharepoint://contoso.sharepoint.com/sites/Eng/Documents/policies"}'
+```
+
 ### `GET /ingest/{task_id}`
 
 ```bash
@@ -420,6 +530,7 @@ docquery/
 │   ├── config.py              # pydantic-settings env config
 │   ├── ingest/
 │   │   ├── loader.py          # format dispatch + legacy loaders (md, pdf, txt)
+│   │   ├── sources.py         # scheme dispatch: sharepoint:// and gdrive:// pulls
 │   │   ├── docling_loader.py  # Docling parsing/chunking (pdf, office, images)
 │   │   ├── chunker.py         # markdown / recursive / semantic strategies
 │   │   ├── sparse.py          # BM25 sparse vector computation
@@ -480,7 +591,8 @@ Directory ingest is fully idempotent: chunk IDs are the first 64 bits of `SHA256
 
 Hardened in a follow-up security/code-review pass (full per-commit detail in `git log`):
 
-- Path-prefix allowlist on `/ingest` against `INGEST_ROOT`, with symlink filtering.
+- Azure Entra ID bearer-token validation (`AUTH_ENABLED`) on every endpoint but `/health`, with app roles mapped to clearance levels.
+- Path-prefix allowlist on `/ingest` against `INGEST_ROOT`, with symlink filtering; remote URIs gated by `INGEST_ALLOWED_SOURCE_PREFIXES` (empty by default), matched on path boundaries and refusing relative segments.
 - Server-side clearance via `CLEARANCE_POLICY` (frontmatter ignored); `MAX_CLEARANCE_LEVEL` ceiling on the header.
 - In-memory rate limit (`RATE_LIMIT_REQUESTS_PER_MINUTE`), `Content-Length` cap (`REQUEST_MAX_BODY_BYTES`), and security headers (`X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`).
 - OpenAI client `timeout` + `max_retries` from settings.
@@ -490,7 +602,7 @@ Hardened in a follow-up security/code-review pass (full per-commit detail in `gi
 
 Not implemented (still out of scope for a portfolio project):
 
-- **Auth** — `X-User-Clearance` is an unauthenticated header. In prod, derive from a verified JWT claim.
+- **Per-user rate limiting** — the limiter keys on client IP, not on the token's `sub`. Two users behind one NAT share a bucket.
 - **Multi-worker rate limit / task store** — both are in-process. A real deployment with `uvicorn --workers N > 1` needs Redis (or Qdrant payload) for shared state.
 - **Streaming** — responses could be streamed; OpenAI SDK supports it.
 - **Chat history** — single-turn Q&A only, no conversation state.

@@ -1,11 +1,13 @@
+import logging
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from docquery.api.auth import _get_jwks_client, jwks_uri_for
 from docquery.api.ratelimit import BodySizeMiddleware, RateLimitMiddleware
-from docquery.api.routes import router
+from docquery.api.routes import router, system_router
 from docquery.config import get_settings
 from docquery.retrieve.embedder import _get_model
 from docquery.retrieve.reranker import _get_reranker
@@ -27,11 +29,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     _get_model(settings.embedding_model)
     _get_reranker(settings.reranker_model)
+    if settings.auth_enabled:
+        # Best-effort: warm the JWKS cache so the first authenticated request
+        # doesn't pay the fetch. Never fatal — a tenant that is briefly
+        # unreachable must not stop the container from serving /health.
+        try:
+            _get_jwks_client(jwks_uri_for(settings)).get_jwk_set()
+        except Exception as exc:
+            logger.warning("Could not prefetch JWKS at startup: %s", exc)
+    else:
+        logger.warning(
+            "AUTH_ENABLED is false — the API is running WITHOUT authentication "
+            "and X-User-Clearance is trusted as sent. Do not use in production."
+        )
     yield
 
 
@@ -39,4 +57,5 @@ app = FastAPI(title="docquery", version=version("docquery"), lifespan=lifespan)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(BodySizeMiddleware)
+app.include_router(system_router)
 app.include_router(router)

@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -79,6 +79,25 @@ class Settings(BaseSettings):
     # symlinks pointing outside the root are filtered.
     ingest_root: Path = Path("docs")
 
+    # Remote ingest sources (sharepoint:// and gdrive:// URIs)
+    # Allowlist for /ingest, the counterpart of ingest_root for remote URIs. An
+    # empty list is fail-closed: the API accepts no remote URI at all, so a
+    # caller cannot make the server pull arbitrary sites from the tenant. The
+    # CLI is unrestricted — it is already an operator-level entry point.
+    ingest_allowed_source_prefixes: list[str] = []
+    # Per-file download ceiling. Files above it are skipped, not fatal.
+    source_max_file_mb: int = 50
+    # SharePoint via Microsoft Graph, client credentials. Separate from the API's
+    # own Entra ID app registration: this one is a confidential client that reads
+    # documents, that one only validates callers' tokens.
+    sharepoint_tenant_id: str = ""
+    sharepoint_client_id: str = ""
+    sharepoint_client_secret: SecretStr | None = None
+    # Google Drive service account. A path to the JSON key rather than the JSON
+    # itself, so the credential is mounted as a file and never sits in the
+    # environment where any subprocess could read it.
+    gdrive_service_account_file: Path | None = None
+
     # Clearance / RBAC
     # default_clearance_level: applied to documents that don't match
     # clearance_policy. Default 0 (public) keeps the demo corpus accessible;
@@ -97,6 +116,23 @@ class Settings(BaseSettings):
     # falls back to default_doc_type on no match.
     default_doc_type: str = "document"
     type_policy: list[tuple[str, str]] = []
+
+    # Auth (Azure Entra ID)
+    # Opt-in like docling_enabled: the demo corpus and quickstart run without a
+    # tenant. When False the API derives clearance from the X-User-Clearance
+    # header exactly as before; production deployments must set AUTH_ENABLED=true.
+    auth_enabled: bool = False
+    # Not secrets — tenant and client (application) ID are public identifiers.
+    # There is no client secret: the API validates tokens, it never requests them.
+    azure_tenant_id: str = ""
+    azure_client_id: str = ""
+    # App role → clearance level. JSON in .env: [["clearance.5", 5]]. The highest
+    # level among the token's roles wins; tokens with no mapped role fall back to
+    # default_clearance_level.
+    auth_role_clearance_map: list[tuple[str, int]] = []
+    # Clock skew tolerance for exp/nbf/iat. Without it, container clock drift
+    # produces intermittent 401s that are hard to diagnose.
+    auth_leeway_seconds: int = 60
 
     # Ingest task store
     task_ttl_seconds: int = 3600
@@ -118,6 +154,20 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1024
     llm_price_input_per_1m: float = 0.15
     llm_price_output_per_1m: float = 0.60
+
+    @model_validator(mode="after")
+    def _check_auth_config(self) -> "Settings":
+        """Fail fast when auth is on but unconfigured.
+
+        Without this the API would boot with auth_enabled=True and no tenant,
+        rejecting every token — or worse, appear protected while validating
+        against an empty issuer.
+        """
+        if self.auth_enabled and not (self.azure_tenant_id and self.azure_client_id):
+            raise ValueError(
+                "auth_enabled requires azure_tenant_id and azure_client_id"
+            )
+        return self
 
 
 @lru_cache

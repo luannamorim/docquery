@@ -66,7 +66,22 @@ class QueryResponse(BaseModel):
 
 
 class IngestRequest(BaseModel):
-    path: str = Field(min_length=1, max_length=4096, examples=["docs/sample"])
+    # Named `path` for backwards compatibility; it also accepts a remote folder
+    # URI, which must fall under ingest_allowed_source_prefixes.
+    path: str = Field(
+        min_length=1,
+        max_length=4096,
+        description=(
+            "Local path under ingest_root, or a remote folder URI: "
+            "sharepoint://<host>/sites/<site>/<drive>[/<folder>] or "
+            "gdrive://<folder id>"
+        ),
+        examples=[
+            "docs/sample",
+            "sharepoint://contoso.sharepoint.com/sites/Eng/Documents/policies",
+            "gdrive://1AbCdEfGhIjKlMnOpQrS",
+        ],
+    )
 
 
 class IngestResponse(BaseModel):

@@ -227,11 +227,19 @@ filter. `doc_type` is surfaced in each citation for transparency.
 Keep scope tight. This is a portfolio piece, not a startup:
 
 - Frontend/UI — API only, curl examples are enough
-- Auth/RBAC — mention it as "production consideration" in README
+- ~~Auth/RBAC — mention it as "production consideration" in README~~ — **built anyway** (see below)
 - Multiple LLM providers — one provider, mention swappability in config
 - Streaming responses — nice-to-have, not core value
 - Chat history/memory — this is a Q&A system, not a chatbot
-- Complex document parsing (OCR, tables) — markdown + PDF text is enough
+- ~~Complex document parsing (OCR, tables) — markdown + PDF text is enough~~ — **built anyway** (Docling)
+
+### Delivered beyond this scope
+
+Two items above were deliberately reopened after the original six phases, because the "production-grade" claim did not survive them being missing:
+
+- **Document parsing** — Docling ingestion (OCR, table structure, DOCX/PPTX/XLSX).
+- **Auth/RBAC** — server-side clearance policy, then Azure Entra ID bearer-token validation (`AUTH_ENABLED`) with app roles mapped to clearance levels. RBAC filtering shipped first with an unauthenticated header; the header is now the demo-only path.
+- **Remote sources** — ingestion from SharePoint and Google Drive folders by URI, pulled one-shot into a temporary directory. Not in the original scope either way; added because a corpus that only exists on a local disk is not the case the system is for.
 
 ---
 
