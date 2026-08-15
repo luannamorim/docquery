@@ -274,3 +274,22 @@ def test_without_the_header_nothing_is_restricted():
 def test_a_blank_header_reads_nothing():
     """Explicitly asking for no sector is not the same as not asking."""
     assert _post({"query": "x"}, {"X-User-Sectors": " , "})["sectors"] == []
+
+
+def test_an_unreachable_sector_does_not_claim_the_index_is_empty(client, monkeypatch):
+    """Telling the caller to ingest would send them re-indexing what is there."""
+    from docquery.generate import rag
+
+    monkeypatch.setattr(rag, "QdrantClient", lambda **kwargs: client)
+    monkeypatch.setattr(rag, "OpenAI", lambda **kwargs: None)
+    with (
+        patch("docquery.retrieve.hybrid.embed_texts") as mock_embed,
+        patch("docquery.retrieve.hybrid.sparse_vector") as mock_sparse,
+    ):
+        mock_embed.return_value = np.array([[1.0] + [0.0] * (DIM - 1)])
+        mock_sparse.return_value = ([1, 2, 3], [0.5, 0.3, 0.2])
+        result = rag.query_pipeline("consulta", _settings(), sectors=["inexistente"])
+
+    assert result["sources"] == []
+    assert "ingest" not in result["answer"].lower()
+    assert "access" in result["answer"].lower()

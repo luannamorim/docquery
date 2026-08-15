@@ -148,7 +148,17 @@ def query_pipeline(
         len(contexts),
     )
     if not contexts:
-        if not points:
+        if not points and sectors is not None:
+            # With a compartment in force, an empty result far more often means
+            # the caller's sectors reach nothing than that the index is empty,
+            # and telling them to ingest would send them re-indexing a corpus
+            # that is already there. Deliberately ambiguous between the two, so
+            # the answer does not confirm that something exists out of reach.
+            answer = (
+                "No documents matched. Either nothing relevant is indexed, or "
+                "your access does not reach it."
+            )
+        elif not points:
             answer = (
                 "No documents have been indexed yet. Please ingest documents first."
             )
