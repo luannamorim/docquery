@@ -24,6 +24,7 @@ def retrieve(
     client: QdrantClient,
     settings: Settings | None = None,
     user_clearance: int = 0,
+    sectors: list[str] | None = None,
     folders: list[str] | None = None,
     source: str | None = None,
     tags: list[str] | None = None,
@@ -35,6 +36,10 @@ def retrieve(
     "text", "source", "chunk_index", "file_type", "section", "clearance_level",
     "folders", "entity", "tags".
 
+    sectors is the access compartment, imposed by the server rather than chosen
+    by the caller: None skips the filter (no auth to enforce), [] returns
+    nothing, and a list restricts to those sectors.
+
     Optional scoping filters are ANDed with the clearance filter:
     - folders: restrict to sources under any of these folder names, matched at
       any depth of the ingested tree (e.g. ["rh"])
@@ -42,6 +47,19 @@ def retrieve(
     - tags: restrict to chunks carrying any of these tags
     """
     settings = settings or get_settings()
+
+    # The sector compartment is imposed, not requested: sectors is None only
+    # when there is no identity to enforce (auth off). Anything else narrows,
+    # and narrowing to nothing short-circuits before the query is even embedded
+    # — an empty MatchAny is not a dependable way to say "match none".
+    #
+    # Blanks are dropped here rather than trusted from the callers: a document
+    # at the ingest root carries sector "", so a stray "" would match exactly
+    # the documents that belong to no compartment.
+    if sectors is not None:
+        sectors = [s for s in sectors if s]
+        if not sectors:
+            return []
 
     existing = {c.name for c in client.get_collections().collections}
     if settings.qdrant_collection not in existing:
@@ -54,6 +72,8 @@ def retrieve(
     conditions: list[Condition] = [
         FieldCondition(key="clearance_level", range=Range(lte=user_clearance))
     ]
+    if sectors:
+        conditions.append(FieldCondition(key="sector", match=MatchAny(any=sectors)))
     if folders:
         # Normalized here, the single choke point every caller passes through, so
         # a filter matches the folder name as the user sees it regardless of case.

@@ -90,6 +90,7 @@ def query_pipeline(
     query: str,
     settings: Settings | None = None,
     user_clearance: int = 0,
+    sectors: list[str] | None = None,
     folders: list[str] | None = None,
     source: str | None = None,
     tags: list[str] | None = None,
@@ -126,13 +127,14 @@ def query_pipeline(
         qdrant,
         settings,
         user_clearance=user_clearance,
+        sectors=sectors,
         folders=folders,
         source=source,
         tags=tags,
     )
     contexts = rerank(query, points, settings)
     contexts = expand_contexts(
-        contexts, qdrant, settings, user_clearance=user_clearance
+        contexts, qdrant, settings, user_clearance=user_clearance, sectors=sectors
     )
     qid = hashlib.sha256(query.encode()).hexdigest()[:8]
     for source, reason in check_context(contexts):

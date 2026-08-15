@@ -184,6 +184,7 @@ def query(
     request: QueryRequest,
     settings: SettingsDep,
     user_clearance: ClearanceDep,
+    sectors: SectorsDep,
 ) -> QueryResponse:
     blocked, reason = check_input(request.query)
     if blocked:
@@ -192,6 +193,7 @@ def query(
         request.query,
         settings=settings,
         user_clearance=user_clearance,
+        sectors=sectors,
         folders=request.folders,
         source=request.source,
         tags=request.tags,
