@@ -1,0 +1,140 @@
+"""Azure Entra ID bearer token validation.
+
+The API is a resource server: it validates tokens the caller already obtained
+from Entra ID and never requests any itself, so there is no client secret and no
+login endpoint here.
+
+Only the `roles` claim (app roles) is read for authorization. Delegated scopes
+(`scp`) are deliberately ignored — app roles are assigned to both users and
+service principals, so one mapping covers interactive and client-credentials
+callers alike.
+
+Every function takes Settings as a parameter instead of calling get_settings():
+that is what lets tests swap configuration through app.dependency_overrides,
+which the middleware layer cannot do.
+"""
+
+import logging
+from functools import lru_cache
+from typing import Annotated
+
+import jwt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from docquery.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
+
+# Starlette's HTTPBearer answers a missing header with 403 and no
+# WWW-Authenticate. auto_error=False hands us the None so we can raise the 401
+# the OAuth 2.0 bearer spec asks for.
+_bearer = HTTPBearer(auto_error=False)
+
+_MISSING_TOKEN_HEADERS = {"WWW-Authenticate": "Bearer"}
+_INVALID_TOKEN_HEADERS = {"WWW-Authenticate": 'Bearer error="invalid_token"'}
+
+
+def issuer_for(settings: Settings) -> str:
+    return f"https://login.microsoftonline.com/{settings.azure_tenant_id}/v2.0"
+
+
+def jwks_uri_for(settings: Settings) -> str:
+    return (
+        f"https://login.microsoftonline.com/{settings.azure_tenant_id}"
+        "/discovery/v2.0/keys"
+    )
+
+
+@lru_cache
+def _get_jwks_client(jwks_uri: str) -> jwt.PyJWKClient:
+    """Cached JWKS client.
+
+    PyJWKClient keeps the key set for `lifespan` seconds and refetches whenever a
+    token carries an unknown `kid`, so Microsoft's key rotation needs no handling
+    here. The timeout is well below the request timeout so an unreachable tenant
+    fails fast instead of hanging the worker.
+    """
+    return jwt.PyJWKClient(jwks_uri, timeout=10)
+
+
+def _get_signing_key(token: str, settings: Settings):
+    """Resolve a token's signing key from the tenant's JWKS.
+
+    Kept as its own function because it is the network boundary, and therefore
+    the seam the test suite monkeypatches.
+    """
+    client = _get_jwks_client(jwks_uri_for(settings))
+    return client.get_signing_key_from_jwt(token).key
+
+
+def validate_token(token: str, settings: Settings) -> dict:
+    """Verify a bearer token and return its claims.
+
+    Rejections carry a single generic message: the specific reason (expired,
+    wrong audience, bad signature) is logged server-side but never returned, so
+    the response cannot be used to probe the expected issuer or audience.
+    """
+    try:
+        key = _get_signing_key(token, settings)
+        return jwt.decode(
+            token,
+            key,
+            # Pinned: the key always comes from the JWKS, so a token asking for
+            # HS256 (or none) must not be honoured.
+            algorithms=["RS256"],
+            # `aud` arrives as the bare client id or as the App ID URI depending
+            # on how the caller requested the scope. Both name this same API.
+            audience=[settings.azure_client_id, f"api://{settings.azure_client_id}"],
+            issuer=issuer_for(settings),
+            leeway=settings.auth_leeway_seconds,
+            options={"require": ["exp", "iss", "aud"]},
+        )
+    except jwt.PyJWKClientConnectionError as exc:
+        # Checked before PyJWTError: this is a subclass of it, and an unreachable
+        # JWKS endpoint is our outage, not a bad token. Its sibling
+        # PyJWKClientError ("no signing key matches this kid") is deliberately
+        # left to the 401 branch — an unknown kid is a bad token.
+        logger.error("JWKS fetch failed: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="Authentication service unavailable"
+        ) from exc
+    except jwt.PyJWTError as exc:
+        logger.warning("Token rejected: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=401, detail="Invalid token", headers=_INVALID_TOKEN_HEADERS
+        ) from exc
+
+
+def roles_to_clearance(roles: list[str], settings: Settings) -> int:
+    """Map app roles to a clearance level; the highest matching role wins.
+
+    A token with no mapped role is not an error: it gets
+    default_clearance_level, because clearance filters what retrieval returns
+    rather than gating the endpoint.
+    """
+    levels = [lvl for role, lvl in settings.auth_role_clearance_map if role in roles]
+    if not levels:
+        return settings.default_clearance_level
+    return min(max(levels), settings.max_clearance_level)
+
+
+def require_auth(
+    settings: Annotated[Settings, Depends(get_settings)],
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_bearer)
+    ] = None,
+) -> dict | None:
+    """Validate the bearer token and return its claims, or None when auth is off.
+
+    Single entry point for authentication. FastAPI caches a dependency's result
+    per request, so a route that also reads the clearance validates the token
+    once.
+    """
+    if not settings.auth_enabled:
+        return None
+    if credentials is None:
+        raise HTTPException(
+            status_code=401, detail="Not authenticated", headers=_MISSING_TOKEN_HEADERS
+        )
+    return validate_token(credentials.credentials, settings)
