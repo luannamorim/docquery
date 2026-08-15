@@ -205,6 +205,8 @@ uv sync --extra eval
 make eval
 ```
 
+> The quickstart runs unauthenticated: `AUTH_ENABLED` defaults to `false`, and the server logs a warning saying so. To require Entra ID tokens, see [Authentication](#authentication--azure-entra-id). To ingest from SharePoint or Google Drive instead of a local folder, see [Remote Sources](#remote-sources--sharepoint--google-drive).
+
 **Local dev (no Docker):**
 
 ```bash
