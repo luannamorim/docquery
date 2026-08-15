@@ -28,7 +28,7 @@ The v1 of docquery had strong foundations: hybrid retrieval, reranking, RAGAS ev
 | Gold-set size | 20 questions (low statistical power) | 101 stratified questions: factual, multi-hop, comparative, unanswerable |
 | Chunking strategy | Hardcoded Markdown + Recursive | Configurable via `CHUNKER_STRATEGY=markdown\|recursive\|semantic` |
 | Prompt injection | No input validation — any payload reached the LLM | NFKC-normalized guard, PT-BR/ES patterns, indirect-injection check on retrieved chunks |
-| RBAC | All documents accessible to all users | Server-side `clearance_policy` (path-prefix → level), clearance from a verified Entra ID `roles` claim, filter applied at retrieve + expand |
+| RBAC | All documents accessible to all users | Sector compartments derived from the ingested tree, granted by a verified Entra ID `roles` claim, filter applied at retrieve + expand |
 
 The tradeoff for hardening instead of starting a new project: five gaps closed in ~1.5 weeks, narrative of "engineer auditing their own work" — which is rarer and more credible in a portfolio than project #N.
 
@@ -46,15 +46,15 @@ flowchart TD
         A[Documents\npdf · docx · pptx · xlsx\npng · jpg · md · txt] --> B[Loader\ningest_root allowlist]
         B --> B2[Docling\nlayout · OCR · tables\npage provenance]
         B2 --> C[Chunker\nhybrid · markdown · recursive · semantic]
-        C --> Y[Clearance Policy\npath_prefix → level]
+        C --> Y[Sector\ntop-level folder]
         Y --> D[Embedder\nall-MiniLM-L6-v2]
-        D --> E[(Qdrant\ndense + sparse\nclearance_level index)]
+        D --> E[(Qdrant\ndense + sparse\nsector index)]
     end
 
     subgraph Query
         F[User Query] --> G[Guard\ninjection check]
         G --> H[Embed Query]
-        H --> I[Hybrid Retrieval\nRRF + clearance filter]
+        H --> I[Hybrid Retrieval\nRRF + sector filter]
         I --> J[Cross-Encoder\nReranker]
         J --> K[LLM Generation\nGPT-4o-mini]
         K --> L[Answer + Citations\n+ tokens + cost]
@@ -66,14 +66,14 @@ flowchart TD
     end
 
     E --> I
-    X[X-User-Clearance header] --> I
+    X[X-User-Sectors header] --> I
 ```
 
 ## Document Parsing — Docling
 
-Docling is responsible for parsing and structuring documents. Qdrant remains responsible for vector storage and retrieval. Clearance/RBAC is still applied before chunks are sent to the LLM.
+Docling is responsible for parsing and structuring documents. Qdrant remains responsible for vector storage and retrieval. The sector filter is still applied before chunks are sent to the LLM.
 
-Docling replaces only the parsing stage. Everything after it — chunk classification, embedding, hybrid retrieval, RRF, reranking and the clearance filter — is unchanged. The feature is **off by default**; with `DOCLING_ENABLED=false` the pipeline behaves exactly as it did before, and the `docling` package is never even imported.
+Docling replaces only the parsing stage. Everything after it — chunk classification, embedding, hybrid retrieval, RRF, reranking and the sector filter — is unchanged. The feature is **off by default**; with `DOCLING_ENABLED=false` the pipeline behaves exactly as it did before, and the `docling` package is never even imported.
 
 ### Supported formats
 
@@ -124,7 +124,7 @@ Every chunk stays traceable to its origin. Three payload fields are new and **ad
 
 | Docling source | Qdrant payload | Notes |
 | -------------- | -------------- | ----- |
-| file path | `source` | Unchanged; still drives the clearance and doc-type path policies |
+| file path | `source` | Unchanged; still the document's identity for dedup and pruning |
 | `DocMeta.headings` | `section` | Joined as `Title > Section > Subsection` |
 | `prov.page_no` | `page_number` **(new)** | `0` when the format has no pages (DOCX/PPTX/XLSX) or the item carries no provenance. A chunk spanning pages reports the page it starts on |
 | item label | `content_type` **(new)** | `text` \| `table` \| `figure`; always `text` for the legacy parsers |
@@ -227,7 +227,7 @@ make serve
 | Framework      | LangChain, LlamaIndex, custom         | **Thin custom + individual libs**                               | No framework lock-in, explicit pipeline control |
 | Evaluation     | Manual, RAGAS, custom                 | **RAGAS 0.4.x**                                                 | Industry standard, reproducible, comparable metrics |
 | Config         | dotenv, Dynaconf, pydantic-settings   | **pydantic-settings**                                           | Type-safe, env-based, integrates with FastAPI DI |
-| RBAC           | JWT decode, header, body field        | **Server-side `clearance_policy` + Entra ID app roles**         | Classification is server-side (frontmatter ignored); the level comes from a verified `roles` claim, falling back to the bound-checked `X-User-Clearance` header only when `AUTH_ENABLED=false` |
+| RBAC           | JWT decode, header, body field        | **Sector derived from the tree + Entra ID app roles**           | The compartment is derived server-side from the path (frontmatter ignored); the grant comes from a verified `roles` claim, falling back to the `X-User-Sectors` header only when `AUTH_ENABLED=false` |
 | Auth           | Custom JWT, Authlib, python-jose, PyJWT | **PyJWT + `PyJWKClient`**                                     | Smallest dependency that validates properly: JWKS caching and key-rotation refetch are built in, `cryptography` comes with it for RS256. python-jose is unmaintained; Authlib ships an OAuth client the API never needs |
 | Injection guard | Llama Guard, NeMo Guardrails, custom | **NFKC-normalized regex validator (guard.py)**                  | Zero latency, zero dependencies, covers OWASP LLM01/LLM06 patterns in EN + PT-BR/ES, NFKC handles fullwidth-Latin evasions; second layer is hardened system prompt; third is `check_context()` over retrieved chunks |
 
@@ -258,39 +258,41 @@ Run `make compare-chunkers` to evaluate `markdown`, `recursive`, and `semantic` 
 
 > **On methodology.** In a production setting this would live in an experiment tracker (MLflow, Weights & Biases) with CI-gated eval and regression thresholds. The committed JSON snapshots document methodology and results without extra infrastructure.
 
-## RBAC — Clearance-Level Access Control
+## RBAC — Sector Compartments
 
-Chunks carry an integer `clearance_level` payload field. **Classification is server-side**: the level is assigned at ingest time from `settings.clearance_policy` — a list of `(path_prefix, level)` tuples, first match wins — never from the document itself. Frontmatter `clearance:` is parsed but explicitly **ignored** with a log warning, because an untrusted ingest author could otherwise self-label sensitive content as public.
+Ingesting a SharePoint library flattens its permissions: the Graph fetcher reads names and bytes, not access control lists, so without a boundary the index is strictly more permissive than the library it came from. Compartments rebuild that boundary.
 
-Configure the policy via env (`pydantic-settings` parses JSON):
+Each chunk carries a `sector` payload field — **the top-level folder it lives in**, derived server-side at ingest from the same root-relative path as the search facets. Each token carries the sectors its app roles grant. Retrieval returns the intersection, and the caller cannot ask for more.
 
-```bash
-CLEARANCE_POLICY='[["docs/sample/internal_architecture.md", 5], ["docs/sample/", 0]]'
-DEFAULT_CLEARANCE_LEVEL=0   # set above MAX_CLEARANCE_LEVEL for fail-closed prod
-MAX_CLEARANCE_LEVEL=10      # ceiling enforced on X-User-Clearance header
-```
-
-At query time, pass `X-User-Clearance`. Only chunks with `clearance_level ≤ X-User-Clearance` are retrieved. The filter is applied at **both** the hybrid retrieval step (`hybrid.py`) and the context expansion step (`expand.py`) — the second is the easy-to-miss leak point where a privileged neighbor could otherwise be appended to a public hit's window.
-
-**Demo — same query, different clearance** (with the policy above set, so `internal_architecture.md` is classified at level 5):
+Compartments are deliberately not a ladder. A numeric level can only nest (5 sees everything below it), which cannot express "RH reads RH, Financeiro reads Financeiro, neither reads the other" — the arrangement most organizations actually have.
 
 ```bash
-# Public user (clearance 0) — cannot see internal architecture content
-curl -X POST http://localhost:8000/query \
-  -H "Content-Type: application/json" \
-  -H "X-User-Clearance: 0" \
-  -d '{"query": "What are the internal cost targets?"}'
-# → "I couldn't find relevant information to answer that question."
-
-# Privileged user (clearance 5) — sees internal_architecture.md content
-curl -X POST http://localhost:8000/query \
-  -H "Content-Type: application/json" \
-  -H "X-User-Clearance: 5" \
-  -d '{"query": "What are the internal cost targets?"}'
-# → "The engineering team targets a mean cost of under $0.002 per query [1]..."
+AUTH_ENABLED=true
+AUTH_ROLE_SECTOR_MAP='[["sector.rh","rh"],["sector.juridico","juridico"]]'
 ```
 
-> `X-User-Clearance` is the **demo path**, used only when `AUTH_ENABLED=false`. With auth enabled the level is derived from the token's app roles and the header is ignored — see [Authentication](#authentication--azure-entra-id). The header is bound-checked against `MAX_CLEARANCE_LEVEL` and logged on use.
+**Closed by default.** A token with no mapped role reads nothing; there is no floor to fall back to. A folder everyone may read is an ordinary sector whose app role is assigned to the "all employees" group in Entra — one rule for every folder, no exception list to keep in sync.
+
+The filter is applied at **both** the hybrid retrieval step (`hybrid.py`) and the context expansion step (`expand.py`) — the second is the easy-to-miss leak point where a neighbouring chunk from another compartment could otherwise be appended to a permitted hit's window.
+
+Two consequences worth knowing. `sector` is the top-level folder alone, never the `folders` facet, which matches at any depth: `financeiro/rh/folha.pdf` is findable under "rh" by whoever may read financeiro, but it never belongs to RH. And a file sitting at the ingest root has no sector, so no role can reach it — ingest logs a warning naming it.
+
+**Demo — the same query, different sectors** (`AUTH_ENABLED=false`):
+
+```bash
+# Only the RH compartment
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -H "X-User-Sectors: rh" \
+  -d '{"query": "qual o prazo de ferias?"}'
+
+# No header at all — nothing is filtered
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "qual o prazo de ferias?"}'
+```
+
+> `X-User-Sectors` is the **demo path**. With `AUTH_ENABLED=false` there is no identity to enforce, so retrieval is unrestricted unless the header narrows it — the header exists to exercise the mechanism, not to protect anything. With auth enabled the sectors come from the token and the header is ignored, so a caller cannot widen its own reach.
 
 ## Authentication — Azure Entra ID
 
@@ -300,7 +302,7 @@ The API is a **resource server**: it validates bearer tokens the caller already 
 AUTH_ENABLED=true                                     # off by default; required in prod
 AZURE_TENANT_ID=<tenant-guid>
 AZURE_CLIENT_ID=<application-guid>                    # the API's own app registration
-AUTH_ROLE_CLEARANCE_MAP='[["clearance.5", 5], ["clearance.10", 10]]'
+AUTH_ROLE_SECTOR_MAP='[["sector.rh","rh"],["sector.juridico","juridico"]]'
 AUTH_LEEWAY_SECONDS=60                                # clock-skew tolerance
 ```
 
@@ -308,9 +310,9 @@ AUTH_LEEWAY_SECONDS=60                                # clock-skew tolerance
 
 **Validation.** Signature checked against the tenant's JWKS (`/discovery/v2.0/keys`, cached, refetched automatically on key rotation), algorithm pinned to `RS256`, issuer fixed to `https://login.microsoftonline.com/<tenant>/v2.0`, `exp`/`iss`/`aud` required. Both audience forms are accepted (`<client-id>` and `api://<client-id>`) because which one appears depends on how the caller requested the scope.
 
-**App registration.** Expose the API, define app roles named to match `AUTH_ROLE_CLEARANCE_MAP`, and set `accessTokenAcceptedVersion: 2` in the manifest — v1.0 tokens carry a different issuer (`sts.windows.net`) and are rejected. App roles are read from the `roles` claim, which is populated for both interactive users and client-credentials service principals; delegated scopes (`scp`) are ignored.
+**App registration.** Expose the API, define app roles named to match `AUTH_ROLE_SECTOR_MAP`, and set `accessTokenAcceptedVersion: 2` in the manifest — v1.0 tokens carry a different issuer (`sts.windows.net`) and are rejected. App roles are read from the `roles` claim, which is populated for both interactive users and client-credentials service principals; delegated scopes (`scp`) are ignored.
 
-**Authorization model.** Every endpoint requires a token except `GET /health`, which stays open for the Docker healthcheck. A valid token with no mapped role is *not* refused — it gets `DEFAULT_CLEARANCE_LEVEL`, because clearance filters what retrieval returns rather than gating the route. The highest matching role wins, capped at `MAX_CLEARANCE_LEVEL`.
+**Authorization model.** Every endpoint requires a token except `GET /health`, which stays open for the Docker healthcheck. A valid token with no mapped role is *not* refused — it simply reaches no compartment and retrieval returns nothing, because the sector filters what comes back rather than gating the route. A token's sectors are the union of its mapped roles.
 
 ```bash
 # Client credentials, for a service-to-service caller
@@ -354,10 +356,11 @@ make ingest "gdrive://1AbCdEfGhIjKlMnOpQrS"
 
 **One-shot pull.** Each run downloads the folder's files into a temporary directory, parses them with the ordinary loaders (Docling needs a real file on disk) and discards them. There is no scheduler and no incremental sync: re-running fetches again, and the existing source-prefix deduplication decides what changed. Files above `SOURCE_MAX_FILE_MB`, unsupported extensions, and Google-native Docs/Sheets (which have no downloadable bytes) are skipped with a log rather than failing the run.
 
-**Sources are URIs.** A remote document is indexed under `<folder-uri>/<relative path>`, not the scratch path it was downloaded to. That means clearance and type policies work on remote content unchanged — they match on source prefixes either way:
+**Sources are URIs.** A remote document is indexed under `<folder-uri>/<relative path>`, not the scratch path it was downloaded to. The sector is derived from the URI just as it is from a local path, so a SharePoint library compartmentalizes by its top-level folders:
 
 ```bash
-CLEARANCE_POLICY='[["sharepoint://contoso.sharepoint.com/sites/RH/", 5]]'
+# sharepoint://contoso.sharepoint.com/sites/Corp/Documentos/RH/ferias.docx
+#   → sector "rh", reachable by the role mapped to it
 ```
 
 > Keep the trailing `/` in prefixes. Prefixes are matched on path boundaries, so `.../sites/Eng` will not match `.../sites/Engineering`, but writing the separator makes the intent explicit.
@@ -391,8 +394,8 @@ Both APIs are called as plain REST over `httpx`, with `msal` and `google-auth` h
 
 The corpus is heterogeneous (sectors, subjects, years, …), so chunks carry the folders they live in plus descriptive facets, and queries can be scoped by them — metadata-filtered hybrid retrieval in a **single collection** (no per-folder collections, no rigid hierarchy).
 
-- **`folders` — derived server-side from the path**: the folder segments of a document relative to the root that was ingested, lowercased and Unicode-normalized. There is nothing to configure; the structure the corpus already has *is* the taxonomy, and a folder created in SharePoint is a filter on the next ingest. Like `clearance_level`, it gates retrieval scope, so it is **never** read from frontmatter.
-- **Descriptive facets — from frontmatter**: `entity`, `tags`, `title` (non-security; allow-listed in the loader). Frontmatter `clearance`/`folders` are ignored.
+- **`folders` — derived server-side from the path**: the folder segments of a document relative to the root that was ingested, lowercased and Unicode-normalized. There is nothing to configure; the structure the corpus already has *is* the taxonomy, and a folder created in SharePoint is a filter on the next ingest. Like `sector`, it gates retrieval scope, so it is **never** read from frontmatter.
+- **Descriptive facets — from frontmatter**: `entity`, `tags`, `title` (non-security; allow-listed in the loader). Frontmatter `sector`/`folders` are ignored.
 
 ```bash
 INGEST_ROOT=docs   # folder ingested (recursively); see note below for real corpora
@@ -418,7 +421,7 @@ tags: [supply, 2024]
 
 Ingestion reads `INGEST_ROOT` **recursively**, so nested folders are picked up in one pass, and a remote folder URI behaves the same way (`sharepoint://…/Documentos` with `RH/`, `Financeiro/` at its root). The files above are committed examples; keep **real, confidential corpora out of git** — put them in `data/` (gitignored) and set `INGEST_ROOT=data`. Always ingest from the same root: folders are relative to it, so pulling a subfolder afterwards re-indexes those documents with no facets.
 
-`/query` retrieves globally by default and accepts optional filters, ANDed with the clearance filter. A folder name matches at **any depth**:
+`/query` retrieves everything the caller's sectors allow and accepts optional filters, ANDed with the sector filter. A folder name matches at **any depth**:
 
 ```bash
 # one folder and everything nested under it
@@ -434,7 +437,7 @@ curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
 
 Each citation carries the `folders` of its source for traceability. Full convention in [`docs/TAXONOMY.md`](docs/TAXONOMY.md).
 
-> **Upgrading:** chunks indexed before folder facets existed carry no `folders`, so any folder filter excludes them, and a collection created earlier has no index on the field. Re-ingest to restore both. Remove `TYPE_POLICY` and `DEFAULT_DOC_TYPE` from existing `.env` files — unknown keys fail startup with a validation error.
+> **Upgrading:** the payload schema changed twice — `folders` and `sector` are both derived at ingest, and neither exists on older chunks. Payload indexes are only created with the collection, so **delete the collection and re-ingest**; re-ingesting alone leaves the new fields unindexed. Remove `TYPE_POLICY`, `DEFAULT_DOC_TYPE`, `CLEARANCE_POLICY`, `DEFAULT_CLEARANCE_LEVEL`, `MAX_CLEARANCE_LEVEL` and `AUTH_ROLE_CLEARANCE_MAP` from existing `.env` files — unknown keys fail startup with a validation error. `X-User-Clearance` is replaced by `X-User-Sectors`, and `doc_types` on `/query` by `folders`.
 
 ## Prompt Injection Guard
 
@@ -478,11 +481,11 @@ curl http://localhost:8000/health
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
-  -H "X-User-Clearance: 0" \
+  -H "X-User-Sectors: sample" \
   -d '{"query": "What chunking strategy is used?"}'
 ```
 
-Optional body fields scope retrieval (see [Folder Facets](#folder-facets--scoped-retrieval)): `folders` (list, matched at any depth), `source` (single path), `tags` (list) — all ANDed with the clearance filter.
+Optional body fields scope retrieval (see [Folder Facets](#folder-facets--scoped-retrieval)): `folders` (list, matched at any depth), `source` (single path), `tags` (list) — all ANDed with the sector filter.
 
 ```json
 {
@@ -536,12 +539,12 @@ docquery/
 │   │   ├── docling_loader.py  # Docling parsing/chunking (pdf, office, images)
 │   │   ├── chunker.py         # markdown / recursive / semantic strategies
 │   │   ├── sparse.py          # BM25 sparse vector computation
-│   │   └── pipeline.py        # ingestion orchestrator + clearance_level/folders payload
+│   │   └── pipeline.py        # ingestion orchestrator + sector/folders payload
 │   ├── retrieve/
 │   │   ├── embedder.py        # sentence-transformers wrapper
-│   │   ├── hybrid.py          # hybrid retrieval with RRF + clearance filter
+│   │   ├── hybrid.py          # hybrid retrieval with RRF + sector filter
 │   │   ├── reranker.py        # cross-encoder reranking
-│   │   └── expand.py          # context expansion with clearance guard
+│   │   └── expand.py          # context expansion with the same sector guard
 │   ├── generate/
 │   │   └── rag.py             # context assembly + LLM + citations + cost tracking
 │   └── api/
@@ -562,7 +565,7 @@ docquery/
 │   │   └── injection_suite.py # 47-attack OWASP LLM Top 10 test suite (incl. PT-BR + NFKC evasions)
 │   └── results/               # timestamped JSON results (baseline.json committed)
 ├── docs/
-│   ├── sample/                # sample docs for demo (incl. internal_architecture.md clearance:5)
+│   ├── sample/                # sample docs for demo (sector "sample")
 │   ├── contracts/             # example folder facet (folders=["contracts"])
 │   ├── policies/              # example folder facet (folders=["policies"])
 │   ├── manuals/               # example folder facet (folders=["manuals"])
@@ -593,9 +596,9 @@ Directory ingest is fully idempotent: chunk IDs are the first 64 bits of `SHA256
 
 Hardened in a follow-up security/code-review pass (full per-commit detail in `git log`):
 
-- Azure Entra ID bearer-token validation (`AUTH_ENABLED`) on every endpoint but `/health`, with app roles mapped to clearance levels.
+- Azure Entra ID bearer-token validation (`AUTH_ENABLED`) on every endpoint but `/health`, with app roles mapped to sectors.
 - Path-prefix allowlist on `/ingest` against `INGEST_ROOT`, with symlink filtering; remote URIs gated by `INGEST_ALLOWED_SOURCE_PREFIXES` (empty by default), matched on path boundaries and refusing relative segments.
-- Server-side clearance via `CLEARANCE_POLICY` (frontmatter ignored); `MAX_CLEARANCE_LEVEL` ceiling on the header.
+- Sector compartments derived from the ingested tree (frontmatter ignored); closed by default, so an unmapped role reads nothing.
 - In-memory rate limit (`RATE_LIMIT_REQUESTS_PER_MINUTE`), `Content-Length` cap (`REQUEST_MAX_BODY_BYTES`), and security headers (`X-Content-Type-Options`, `Referrer-Policy`, `Cache-Control: no-store`).
 - OpenAI client `timeout` + `max_retries` from settings.
 - Qdrant kept on the internal docker network with `QDRANT_API_KEY` plumbed through.

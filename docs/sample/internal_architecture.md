@@ -1,11 +1,11 @@
 ---
-clearance: 5
+sector: restrito
 ---
 
 # Internal Architecture Notes
 
 This document contains internal engineering notes on docquery's architecture that are not
-intended for public distribution. Access requires clearance level 5.
+intended for public distribution. Reading it requires the role granting its sector.
 
 ## Production Deployment Topology
 

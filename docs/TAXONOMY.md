@@ -44,12 +44,34 @@ sharepoint://contoso.sharepoint.com/sites/Corp/Documentos    (the ingested URI)
 Names are lowercased and Unicode-normalized; spaces and accents are kept, so
 you filter by the folder name as it is displayed (`"recursos humanos"`).
 
-Like `clearance_level`, folders are derived **server-side** from the path —
+Like `sector`, folders are derived **server-side** from the path —
 never read from frontmatter, because they gate retrieval scope.
 
 **Ingest from the same root every time.** Folders are relative to whatever was
 ingested, so pulling `data/rh/` after `data/` re-indexes those documents with
 `folders=[]`. Ingest the corpus root, not a subfolder of it.
+
+### The top-level folder is also the access boundary
+
+The first segment is stored separately as the document's `sector`, and that is
+what decides who may read it. Everything below it is a search facet only.
+
+```
+data/rh/beneficios/plano.pdf        → sector "rh"          (RH may read it)
+data/financeiro/rh/folha.pdf        → sector "financeiro"  (RH may NOT read it)
+```
+
+The second line is the reason the two are separate fields. `folders` matches at
+any depth, so that document is findable under "rh" — but by whoever may read
+financeiro, never by RH. Access reads the top of the path and nothing else.
+
+An app role in Entra grants a sector (`AUTH_ROLE_SECTOR_MAP`), and a token with
+no mapped role reads nothing. A folder everyone may read is an ordinary sector
+whose role is assigned to the "all employees" group — there is no separate
+notion of a public folder to keep in sync.
+
+Because of this, **a file at the ingest root is unreachable**: it has no sector,
+and no role can name one. Ingest logs a warning for each such file.
 
 ## 2. Whom / what it is about → in each file's FRONTMATTER
 
@@ -64,7 +86,7 @@ tags: [supply, 2024]
 ```
 
 Supported descriptive fields: `title`, `entity`, `tags`. Access/scope-gating
-fields (`clearance`, `folders`) are **ignored** in frontmatter — they are
+fields (`sector`, `folders`) are **ignored** in frontmatter — they are
 derived server-side at ingest time.
 
 ## Querying with scope

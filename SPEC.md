@@ -212,16 +212,19 @@ Each chunk carries:
   that was ingested, derived **server-side** at ingest time. The corpus
   structure is the taxonomy, so no configuration restates it. Because `folders`
   gates retrieval scope, it is **not** read from frontmatter (untrusted authors
-  must not self-label), exactly like `clearance_level`.
+  must not self-label), exactly like `sector`.
   (Superseded a `doc_type` facet configured by path prefix in `type_policy`:
   for a SharePoint library it duplicated by hand the folder names already
   present in every source URI.)
 - `entity`, `tags`, `title` — descriptive facets that may come from frontmatter
   (non-security; allowlisted in the loader).
-- `source`, `section`, `clearance_level` — as before.
+- `sector` — the access compartment: the document's top-level folder, derived
+  server-side. Deliberately not the `folders` list, which matches at any
+  depth and would hand a nested folder's name the wrong compartment.
+- `source`, `section` — as before.
 
 Queries default to **global** retrieval and accept optional scoping filters
-(`folders`, `source`, `tags`) that are ANDed with the always-on clearance
+(`folders`, `source`, `tags`) that are ANDed with the always-on sector
 filter. A folder name matches at any depth. `folders` is surfaced in each
 citation for transparency.
 
@@ -243,7 +246,7 @@ Keep scope tight. This is a portfolio piece, not a startup:
 Two items above were deliberately reopened after the original six phases, because the "production-grade" claim did not survive them being missing:
 
 - **Document parsing** — Docling ingestion (OCR, table structure, DOCX/PPTX/XLSX).
-- **Auth/RBAC** — server-side clearance policy, then Azure Entra ID bearer-token validation (`AUTH_ENABLED`) with app roles mapped to clearance levels. RBAC filtering shipped first with an unauthenticated header; the header is now the demo-only path.
+- **Auth/RBAC** — Azure Entra ID bearer-token validation (`AUTH_ENABLED`) with app roles mapped to sector compartments: each document carries the top-level folder it lives in, each token the sectors its roles grant, and retrieval returns the intersection. Shipped first as a numeric clearance ladder, replaced once it became clear that levels nest and sectors do not — RH and Financeiro exclude each other, which no ordering can express.
 - **Remote sources** — ingestion from SharePoint and Google Drive folders by URI, pulled one-shot into a temporary directory. Not in the original scope either way; added because a corpus that only exists on a local disk is not the case the system is for.
 
 ---

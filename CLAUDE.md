@@ -34,9 +34,10 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, ch
 
 ### Ingest conventions
 
-- **A document's `source` is its identity.** Deduplication, orphan pruning and the clearance policy all match on it by prefix. Remote documents are indexed under their URI, never the temporary path they were downloaded to.
-- Prefix matching must be bounded by a separator (`orphan_prefix_for`, `is_allowed_uri`) — an unterminated prefix silently captures sibling folders. `_apply_clearance_policy` is the exception and uses a bare `startswith`, so its configured prefixes must carry the trailing separator themselves.
-- **`folders` is derived, never configured** (`folders.py`, applied in `ingest_path`/`ingest_source`): the path segments relative to the root that was ingested. Both entry points derive it because only they know that root — inside `_ingest_documents` the `source` is already an opaque local path or URI. Like `clearance_level` it gates retrieval scope, so it is rejected from frontmatter.
+- **A document's `source` is its identity.** Deduplication and orphan pruning both match on it by prefix. Remote documents are indexed under their URI, never the temporary path they were downloaded to.
+- Prefix matching must be bounded by a separator (`orphan_prefix_for`, `is_allowed_uri`) — an unterminated prefix silently captures sibling folders.
+- **`folders` is derived, never configured** (`folders.py`, applied in `ingest_path`/`ingest_source`): the path segments relative to the root that was ingested. Both entry points derive it because only they know that root — inside `_ingest_documents` the `source` is already an opaque local path or URI. Like `sector` it gates retrieval scope, so it is rejected from frontmatter.
+- **`sector` is the access boundary and is deliberately not `folders`.** It is the top-level segment alone (`sector_of`), matched exactly, because `folders` matches at any depth — reusing it would let `financeiro/rh/folha.pdf` grant the RH compartment. Both come from one `_place_document` call so they cannot drift apart.
 - `sources.py` dispatches by URI scheme through a dict of functions, mirroring `LOADERS` in `loader.py`. Adding a connector means adding a fetcher and a validator, not a class hierarchy.
 - Remote fetch tests drive `httpx.MockTransport` rather than patching internals, so pagination, streaming and the size cap are actually exercised.
 
@@ -45,6 +46,7 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, ch
 - **Auth belongs in a `Depends`, never a middleware.** `api/auth.py` takes `Settings` as a parameter so tests can swap it via `app.dependency_overrides[get_settings]`; the middlewares in `ratelimit.py` call `get_settings()` directly and are painful to test as a result — don't copy that pattern.
 - Two routers in `routes.py`: `system_router` (open, `/health` only) and `router` (requires a bearer token). New endpoints go on `router` unless a probe needs to reach them without credentials.
 - Tests mint their own RSA keypair and monkeypatch `auth._get_signing_key`, so the suite never reaches the network.
+- **The sectors dependency has three states, and two of them look alike.** `None` means "do not filter" (auth off, no header); `[]` means "reads nothing" and short-circuits before Qdrant is touched. Never collapse them into a falsy check — `if not sectors` would turn a caller who reads nothing into a caller who reads everything.
 
 ## Tech Stack Decisions
 
@@ -56,7 +58,7 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, ch
 | Framework | FastAPI | Async, typed |
 | LLM | GPT-4o-mini (default) | Cost-effective; Claude as alternative |
 | Config | pydantic-settings | Env-based configuration |
-| Auth | Azure Entra ID via `pyjwt[crypto]` | Resource-server validation only (JWKS, RS256); app roles → clearance levels |
+| Auth | Azure Entra ID via `pyjwt[crypto]` | Resource-server validation only (JWKS, RS256); app roles → sector compartments |
 | Remote sources | `httpx` + `msal` / `google-auth` | Plain REST against Graph and Drive; avoids the msgraph-sdk and google-api-python-client stacks |
 | Chunking | LangChain text splitters only | Thin usage, no framework lock-in |
 
