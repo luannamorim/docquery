@@ -107,21 +107,41 @@ def validate_token(token: str, settings: Settings) -> dict:
         ) from exc
 
 
-def roles_to_sectors(roles: list[str], settings: Settings) -> list[str]:
-    """Sectors a token may read, as the union of its mapped app roles.
+SECTOR_ROLE_PREFIX = "sector."
 
-    An empty result means the caller reads nothing: a token with no mapped role
-    is not an error, it simply reaches no compartment. Names are normalized the
-    same way ingest normalizes folder names, so the mapping can be written with
-    whatever casing the SharePoint library displays.
+
+def roles_to_sectors(roles: list[str], settings: Settings) -> list[str]:
+    """Sectors a token may read, as the union of what its app roles grant.
+
+    A role named `sector.<folder>` grants that folder by convention, so the
+    common case needs no configuration at all. The prefix is what makes this
+    safe: without it every app role would be a grant, and an unrelated one
+    (Reader.All, User.Read) would silently open a folder that happened to share
+    its name.
+
+    `auth_role_sector_map` remains for the names the convention cannot carry —
+    an Entra role value takes no spaces or accents, so a folder called
+    "recursos humanos" needs an explicit entry. A mapped role uses only its
+    mapped value: the map translates, it never adds to what the prefix derives.
+
+    An empty result means the caller reads nothing. A token with no granting
+    role is not an error; it simply reaches no compartment. Names are
+    normalized the same way ingest normalizes folder names.
     """
-    return sorted(
-        {
-            sector
-            for role, raw in settings.auth_role_sector_map
-            if role in roles and (sector := normalize_segment(raw))
-        }
-    )
+    mapped_roles = {role for role, _ in settings.auth_role_sector_map}
+    sectors = {
+        sector
+        for role, raw in settings.auth_role_sector_map
+        if role in roles and (sector := normalize_segment(raw))
+    }
+    sectors |= {
+        sector
+        for role in roles
+        if role not in mapped_roles
+        and role.startswith(SECTOR_ROLE_PREFIX)
+        and (sector := normalize_segment(role[len(SECTOR_ROLE_PREFIX) :]))
+    }
+    return sorted(sectors)
 
 
 def require_auth(

@@ -268,10 +268,15 @@ Compartments are deliberately not a ladder. A numeric level can only nest (5 see
 
 ```bash
 AUTH_ENABLED=true
-AUTH_ROLE_SECTOR_MAP='[["sector.rh","rh"],["sector.juridico","juridico"]]'
+# Optional: only for folder names an Entra role value cannot spell.
+AUTH_ROLE_SECTOR_MAP='[["sector.rh","recursos humanos"]]'
 ```
 
-**Closed by default.** A token with no mapped role reads nothing; there is no floor to fall back to. A folder everyone may read is an ordinary sector whose app role is assigned to the "all employees" group in Entra — one rule for every folder, no exception list to keep in sync.
+**A role names the folder it opens.** An app role called `sector.contracts` grants the `contracts` folder, so the common case needs no configuration at all — `AUTH_ROLE_SECTOR_MAP` is only for names the convention cannot carry, since an Entra role value takes no spaces or accents and a folder called "recursos humanos" therefore needs an explicit entry. A mapped role uses only its mapped value: the map translates, it never adds to what the prefix derives.
+
+The `sector.` prefix is what makes this safe. Without it every app role would be a grant, and an unrelated one — `Reader.All`, `User.Read` — would silently open a folder that happened to share its name.
+
+**Closed by default.** A token with no granting role reads nothing; there is no floor to fall back to. A folder everyone may read is an ordinary sector whose app role is assigned to the "all employees" group in Entra — one rule for every folder, no exception list to keep in sync.
 
 The filter is applied at **both** the hybrid retrieval step (`hybrid.py`) and the context expansion step (`expand.py`) — the second is the easy-to-miss leak point where a neighbouring chunk from another compartment could otherwise be appended to a permitted hit's window.
 

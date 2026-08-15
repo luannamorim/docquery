@@ -259,6 +259,41 @@ def test_missing_roles_claim_reads_nothing() -> None:
     assert auth.roles_to_sectors([], _auth_settings()) == []
 
 
+def test_a_sector_prefixed_role_grants_its_folder_without_any_map() -> None:
+    """The zero-config path: sector.contracts opens the contracts folder."""
+    settings = _auth_settings(auth_role_sector_map=[])
+    assert auth.roles_to_sectors(["sector.contracts"], settings) == ["contracts"]
+
+
+def test_a_role_without_the_prefix_grants_nothing() -> None:
+    """Otherwise an unrelated app role would silently open a folder."""
+    settings = _auth_settings(auth_role_sector_map=[])
+    assert auth.roles_to_sectors(["Reader.All", "contracts"], settings) == []
+
+
+def test_the_map_translates_a_role_instead_of_adding_to_it() -> None:
+    """A mapped role must not also grant the folder its own name implies.
+
+    sector.rh mapped to "policies" means the folder is called policies; if the
+    convention still fired, the caller would additionally reach a folder named
+    "rh" — which may well exist and belong to someone else.
+    """
+    settings = _auth_settings(auth_role_sector_map=[("sector.rh", "policies")])
+    assert auth.roles_to_sectors(["sector.rh"], settings) == ["policies"]
+
+
+def test_convention_and_map_coexist_for_different_roles() -> None:
+    settings = _auth_settings(auth_role_sector_map=[("sector.rh", "recursos humanos")])
+    roles = ["sector.rh", "sector.contracts"]
+    assert auth.roles_to_sectors(roles, settings) == ["contracts", "recursos humanos"]
+
+
+def test_a_bare_prefix_grants_nothing() -> None:
+    """ "sector." with nothing after it must not become the empty sector."""
+    settings = _auth_settings(auth_role_sector_map=[])
+    assert auth.roles_to_sectors(["sector.", "sector.  "], settings) == []
+
+
 # --- Endpoint protection --------------------------------------------------
 
 

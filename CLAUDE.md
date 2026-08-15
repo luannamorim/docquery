@@ -46,6 +46,7 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, ch
 - **Auth belongs in a `Depends`, never a middleware.** `api/auth.py` takes `Settings` as a parameter so tests can swap it via `app.dependency_overrides[get_settings]`; the middlewares in `ratelimit.py` call `get_settings()` directly and are painful to test as a result — don't copy that pattern.
 - Two routers in `routes.py`: `system_router` (open, `/health` only) and `router` (requires a bearer token). New endpoints go on `router` unless a probe needs to reach them without credentials.
 - Tests mint their own RSA keypair and monkeypatch `auth._get_signing_key`, so the suite never reaches the network.
+- **A `sector.<folder>` app role grants that folder by convention** (`SECTOR_ROLE_PREFIX`); the map is only for names Entra cannot spell. A mapped role uses its mapped value *only* — letting the convention also fire would widen the grant to a second folder named after the role.
 - **The sectors dependency has three states, and two of them look alike.** `None` means "do not filter" (auth off, no header); `[]` means "reads nothing" and short-circuits before Qdrant is touched. Never collapse them into a falsy check — `if not sectors` would turn a caller who reads nothing into a caller who reads everything.
 
 ## Tech Stack Decisions
