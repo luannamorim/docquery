@@ -402,10 +402,12 @@ Organize content on two axes — **folder = which sector/subject it belongs to**
 
 ```
 docs/                                (INGEST_ROOT)
-  rh/ferias.md                       # folders=["rh"]
-  rh/beneficios/plano.pdf            # folders=["rh", "beneficios"]
-  financeiro/2024/notas.xlsx         # folders=["financeiro", "2024"]
+  contracts/acme_supply_2024.md      # folders=["contracts"]
+  policies/information_security.md   # folders=["policies"]
+  manuals/deployment_guide.md        # folders=["manuals"]
 ```
+
+In a real deployment the top level is usually whatever the organization is divided by — sectors in a SharePoint library, say — and nesting keeps working: `rh/beneficios/plano.pdf` yields `folders=["rh", "beneficios"]`, each segment filterable on its own.
 ```markdown
 ---
 title: Acme Supply Agreement 2024
@@ -419,15 +421,15 @@ Ingestion reads `INGEST_ROOT` **recursively**, so nested folders are picked up i
 `/query` retrieves globally by default and accepts optional filters, ANDed with the clearance filter. A folder name matches at **any depth**:
 
 ```bash
-# the whole RH sector, nested folders included
+# one folder and everything nested under it
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "prazo de ferias", "folders": ["rh"]}'
-# one subject, wherever it sits in the tree
+  -d '{"query": "payment terms", "folders": ["contracts"]}'
+# a folder plus a descriptive tag
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "plano de saude", "folders": ["beneficios"], "tags": ["2024"]}'
+  -d '{"query": "payment terms", "folders": ["contracts"], "tags": ["supply"]}'
 # scope to a single document
 curl -X POST http://localhost:8000/query -H "Content-Type: application/json" \
-  -d '{"query": "prazo de ferias", "source": "docs/rh/ferias.md"}'
+  -d '{"query": "payment terms", "source": "docs/contracts/acme_supply_2024.md"}'
 ```
 
 Each citation carries the `folders` of its source for traceability. Full convention in [`docs/TAXONOMY.md`](docs/TAXONOMY.md).

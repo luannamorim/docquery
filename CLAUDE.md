@@ -34,8 +34,9 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, ch
 
 ### Ingest conventions
 
-- **A document's `source` is its identity.** Deduplication, orphan pruning and the clearance/type policies all match on it by prefix. Remote documents are indexed under their URI, never the temporary path they were downloaded to.
-- Prefix matching must be bounded by a separator (`orphan_prefix_for`, `is_allowed_uri`) — an unterminated prefix silently captures sibling folders.
+- **A document's `source` is its identity.** Deduplication, orphan pruning and the clearance policy all match on it by prefix. Remote documents are indexed under their URI, never the temporary path they were downloaded to.
+- Prefix matching must be bounded by a separator (`orphan_prefix_for`, `is_allowed_uri`) — an unterminated prefix silently captures sibling folders. `_apply_clearance_policy` is the exception and uses a bare `startswith`, so its configured prefixes must carry the trailing separator themselves.
+- **`folders` is derived, never configured** (`folders.py`, applied in `ingest_path`/`ingest_source`): the path segments relative to the root that was ingested. Both entry points derive it because only they know that root — inside `_ingest_documents` the `source` is already an opaque local path or URI. Like `clearance_level` it gates retrieval scope, so it is rejected from frontmatter.
 - `sources.py` dispatches by URI scheme through a dict of functions, mirroring `LOADERS` in `loader.py`. Adding a connector means adding a fetcher and a validator, not a class hierarchy.
 - Remote fetch tests drive `httpx.MockTransport` rather than patching internals, so pagination, streaming and the size cap are actually exercised.
 

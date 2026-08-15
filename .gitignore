@@ -217,6 +217,6 @@ eval/results/*.json
 .claude/agent-memory/
 
 # Real (confidential) corpus to ingest — contracts, policies, etc. NEVER commit
-# private company documents. Set INGEST_ROOT=data and point type_policy at
-# data/* subfolders. The repo keeps only the example docs under docs/.
+# private company documents. Set INGEST_ROOT=data; the folders under it become
+# search facets on their own. The repo keeps only the example docs under docs/.
 /data/
