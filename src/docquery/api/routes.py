@@ -405,6 +405,11 @@ def query_stream(
         nonlocal conversation_id
         answer = ""
         final: dict = {}
+        # Kept from the event that carried them. The closing event has no
+        # sources — they were sent before the first token, which is the whole
+        # design — so recording the turn from `final` stored an empty citation
+        # list and history rendered [1] markers pointing at nothing.
+        sources: list = []
         try:
             for event in query_pipeline_stream(
                 retrieval_query,
@@ -416,7 +421,8 @@ def query_stream(
             ):
                 kind = event["type"]
                 if kind == "sources":
-                    yield _sse("sources", {"sources": event["sources"]})
+                    sources = event["sources"]
+                    yield _sse("sources", {"sources": sources})
                 elif kind == "token":
                     answer += event["text"]
                     yield _sse("token", {"t": event["text"]})
@@ -443,7 +449,7 @@ def query_stream(
                     question=request.query,
                     answer=answer,
                     rewritten_question=retrieval_query if rewritten else "",
-                    citations=final.get("sources", []),
+                    citations=sources,
                     sectors=sectors or [],
                     model=final.get("model", settings.llm_model),
                     tokens_in=final.get("tokens_in", 0),

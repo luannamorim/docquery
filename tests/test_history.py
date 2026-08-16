@@ -368,7 +368,20 @@ def streaming_client(signing_key, monkeypatch):
     from docquery.api.routes import get_store
 
     def _stream(query, settings=None, **kwargs):
-        yield {"type": "sources", "sources": []}
+        yield {
+            "type": "sources",
+            "sources": [
+                {
+                    "index": 1,
+                    "source": "data/contracts/crk_2025.pdf",
+                    "chunk_index": 4,
+                    "score": 7.1,
+                    "text": "O prazo de vigencia e de 12 meses.",
+                    "section": "1.10 VIGENCIA",
+                    "folders": ["contracts"],
+                }
+            ],
+        }
         yield {"type": "token", "text": "O prazo "}
         yield {"type": "token", "text": "e de 30 dias."}
         yield {
@@ -419,6 +432,37 @@ def test_the_stream_records_the_turn_when_it_finishes(streaming_client, private_
     turn = store.turns(cid, owner=ANA)[0]
     assert turn["question"] == "Qual o prazo?"
     assert turn["answer"] == "O prazo e de 30 dias."
+
+
+def test_the_stream_records_the_citations_it_sent(streaming_client, private_key):
+    """Reopening a conversation must show the same sources the answer did.
+
+    The sources are emitted in their own event before the first token — that is
+    the point of the streaming design — so the turn has to be recorded from what
+    was sent, not from the closing event, which carries no sources at all.
+    Without this, every streamed turn was stored with an empty citation list and
+    history rendered answers whose [1] markers pointed at nothing.
+    """
+    api, store = streaming_client
+
+    response = api.post(
+        "/query/stream",
+        json={"query": "Qual o prazo?"},
+        headers={"Authorization": f"Bearer {token_for(private_key, ANA)}"},
+    )
+
+    sent = [
+        json.loads(data)
+        for name, data in _sse_events(response.text)
+        if name == "sources"
+    ][0]["sources"]
+    cid = json.loads([d for n, d in _sse_events(response.text) if n == "done"][0])[
+        "conversation_id"
+    ]
+
+    stored = store.turns(cid, owner=ANA)[0]["citations"]
+    assert stored == sent
+    assert stored, "the fixture streams at least one source"
 
 
 def test_the_stream_asks_the_proxy_not_to_buffer(streaming_client, private_key):
