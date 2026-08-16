@@ -86,6 +86,14 @@ A role named `sector.<folder>` grants that folder by convention — see
 Add a second redirect URI for the Vite dev server: `http://localhost:5173`. The
 client uses `window.location.origin`, so each origin it is served from needs one.
 
+> **`localhost` and `127.0.0.1` are different origins**, to Entra and to the
+> browser alike, however identical they look. Opening the app at
+> `http://127.0.0.1:8000` with only `localhost` registered answers
+> `AADSTS50011`. Registering both is worse than picking one: sessionStorage is
+> per-origin too, so signing in on one and returning on the other looks like
+> never having signed in — an error you can read becomes a session that quietly
+> will not stick.
+
 > **The platform must be SPA, not Web.** Registered as Web, sign-in appears to
 > work and then fails at the token exchange with
 > `AADSTS9002326: Cross-origin token redemption is permitted only for the
