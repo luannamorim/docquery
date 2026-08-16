@@ -317,7 +317,17 @@ AUTH_LEEWAY_SECONDS=60                                # clock-skew tolerance
 
 **App registration.** Expose the API, define app roles named to match `AUTH_ROLE_SECTOR_MAP`, and set `accessTokenAcceptedVersion: 2` in the manifest — v1.0 tokens carry a different issuer (`sts.windows.net`) and are rejected. App roles are read from the `roles` claim, which is populated for both interactive users and client-credentials service principals; delegated scopes (`scp`) are ignored.
 
-**Authorization model.** Every endpoint requires a token except `GET /health`, which stays open for the Docker healthcheck. A valid token with no mapped role is *not* refused — it simply reaches no compartment and retrieval returns nothing, because the sector filters what comes back rather than gating the route. A token's sectors are the union of its mapped roles.
+> **[docs/ENTRA-SETUP.md](docs/ENTRA-SETUP.md) walks the whole thing**: all three registrations, the scope, the roles, who assigns what — and the portal errors each missing step produces, since none of them say what is actually wrong.
+
+**Authorization model.** Every endpoint requires a token except `GET /health` and `GET /config`, which stay open because the Docker healthcheck and the browser client respectively need them *before* they can present one. A valid token with no mapped role is *not* refused — it simply reaches no compartment and retrieval returns nothing, because the sector filters what comes back rather than gating the route. A token's sectors are the union of its mapped roles.
+
+**Reading and rebuilding are different privileges.** Sector roles say what a caller may read. Ingestion rewrites what everyone reads — it deletes a source's chunks before writing the new ones — so it takes a role of its own:
+
+```bash
+AUTH_ADMIN_ROLE=docquery.admin        # the default; rename it to suit the tenant
+```
+
+`POST /ingest` and `GET /ingest/{task_id}` answer **403** without it, and say which role is missing. That is a 403 rather than the 404 the conversation routes use: a conversation id is worth not confirming, while `/ingest` is in the OpenAPI document and pretending otherwise would only mislead the operator who does hold the role. With `AUTH_ENABLED=false` the check does not apply — there is no identity to check, and the quickstart ingests without one. The CLI is unrestricted either way, being an operator-level entry point already.
 
 ```bash
 # Client credentials, for a service-to-service caller
@@ -473,6 +483,81 @@ Each citation carries the `folders` of its source for traceability. Full convent
 
 > **Upgrading:** the payload schema changed twice — `folders` and `sector` are both derived at ingest, and neither exists on older chunks. Payload indexes are only created with the collection, so **delete the collection and re-ingest**; re-ingesting alone leaves the new fields unindexed. Remove `TYPE_POLICY`, `DEFAULT_DOC_TYPE`, `CLEARANCE_POLICY`, `DEFAULT_CLEARANCE_LEVEL`, `MAX_CLEARANCE_LEVEL` and `AUTH_ROLE_CLEARANCE_MAP` from existing `.env` files — unknown keys fail startup with a validation error. `X-User-Clearance` is replaced by `X-User-Sectors`, and `doc_types` on `/query` by `folders`.
 
+## The Interface
+
+`docker compose up` serves a browser client at `http://localhost:8000/` — the same origin as the API, which is why [CORS](#production-considerations) still does not appear anywhere in this codebase and why there is one thing to deploy rather than two.
+
+It is a small TypeScript app with no framework (Vite, ~270 kB), built in its own Docker stage so node never reaches the runtime image. `app.py` mounts the build only if it exists, so an API-only image still works and the test suite never needs npm.
+
+**Sources land before the answer.** That is the one thing this interface does that a general chat client cannot: retrieval and reranking both finish before the LLM is called, so the SSE stream emits the citations first and the reader watches the answer being written against documents already on screen. No spinner, and no waiting to find out whether it found the right contract.
+
+**Citations are bound to the prose.** Every `[n]` in the answer is live — hover it and its card lights up, click it and the passage expands. A coloured tab on each card marks the sector it came from, with the colour derived by hashing the folder name rather than configured, the same rule ingest follows when it derives the sector from the path.
+
+**Sign-in is MSAL with authorization code + PKCE**, against a second Entra app registration of type SPA (public client, no secret — anything shipped to a browser is public). The API is untouched by this: it still only validates tokens and never issues them.
+
+```bash
+FRONTEND_CLIENT_ID=<spa-app-registration-guid>
+```
+
+Register the SPA in Entra with a redirect URI of the app's own origin (`http://localhost:8000` in development) and grant it delegated access to the API's scope — [docs/ENTRA-SETUP.md](docs/ENTRA-SETUP.md) has the steps and the traps. `GET /config` does the rest: the tenant and client ids reach the browser at runtime, so one image is configured per environment instead of rebuilt for each.
+
+Development, with the API already running on `:8000`:
+
+```bash
+cd frontend && npm install && npm run dev   # proxies the API, so one origin holds
+```
+
+> Access tokens live in MSAL's in-memory cache, never `localStorage` — a token there outlives the tab and is readable by any script that ever runs on the origin. Signing in again after a hard refresh is the price.
+
+## Conversation History — Multi-turn & Audit
+
+`/query` was stateless: it embedded whatever string it was handed, so a follow-up arrived with no anchor at all.
+
+```
+POST /query  {"query": "Qual o prazo de pagamento do contrato Acme?"}
+→ correct, citing docs/contracts/acme_supply_2024.md
+
+POST /query  {"query": "e a multa por atraso?"}
+→ embeds four words with no "Acme" and no "contrato". BM25 matches "multa"
+  anywhere in the corpus; the answer is about the wrong document, or missing.
+```
+
+With `HISTORY_ENABLED=true`, a conversation id ties the turns together and the follow-up is resolved before retrieval:
+
+```bash
+# First turn — no id needed, one comes back
+curl -s -X POST localhost:8000/query -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"query": "Qual o prazo de pagamento do contrato Acme?"}'
+# → {"answer": "...", "conversation_id": "3f2a…", "rewritten_query": null}
+
+# Follow-up — pass the id back
+curl -s -X POST localhost:8000/query -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -d '{"query": "e a multa por atraso?", "conversation_id": "3f2a…"}'
+# → {"answer": "...", "rewritten_query": "multa por atraso no contrato Acme Supply 2024"}
+```
+
+`rewritten_query` is what actually went to retrieval; `query` still echoes what the caller asked, and that is what the history records.
+
+**A first turn is never rewritten.** With no earlier question there is nothing to resolve, so the LLM is not called and the pipeline runs exactly as it did before this existed. That is deliberate: it costs a one-shot question nothing, and it keeps the [RAGAS baseline](#ragas-baseline) comparable, since `run_eval.py` drives `query_pipeline` directly and never touches a conversation.
+
+**The rewriter reads questions, never answers.** An answer carries passages lifted from indexed documents, and routing those back into a prompt would let any ingested file issue instructions to the rewriter — the indirect-injection path the [guard](#prompt-injection-guard) can warn about but not neutralise. The caller's own questions carry the antecedent anyway. The rewritten query is then re-checked by the same guard as the original, because it is model output built from caller-supplied text.
+
+**Ownership, and why 404.** A conversation belongs to the `oid` of the token that opened it, and every statement in the store filters on it — ownership is a `WHERE` clause, never a check in Python above the query. Someone else's conversation is indistinguishable from one that does not exist, so all three routes answer **404, never 403**; a 403 would confirm the id to whoever is enumerating them.
+
+```bash
+HISTORY_ENABLED=true
+HISTORY_DSN=mysql://docquery:<password>@mysql:3306/docquery
+HISTORY_CONTEXT_TURNS=6      # how many earlier questions the rewrite may see
+```
+
+`HISTORY_ENABLED` requires `AUTH_ENABLED` and the app refuses to boot otherwise — without a token there is no owner, and every conversation would belong to whoever guessed its id. The schema is applied on first use; `docker compose up` brings a MySQL service alongside Qdrant, or point `HISTORY_DSN` at an existing instance.
+
+**Retention is unbounded, erasure is on demand.** The audit trail is meant to outlive the conversation, so nothing expires on a timer. `DELETE /conversations/{id}` exists regardless of that policy: the right to erasure (LGPD art. 18) belongs to the data subject and does not depend on how long we would otherwise keep the record. Note what this means operationally — the store holds questions, answers and cited passages from a contractual corpus, so it deserves the same backup and access rigour as Qdrant itself.
+
+> Measuring it: `python eval/scripts/compare_followup.py` retrieves each follow-up in `eval/dataset_multiturn.json` with and without the rewrite and reports the hit rate on the expected source. The rewrite earns its LLM call only while that number goes up.
+
 ## Prompt Injection Guard
 
 The `/query` endpoint validates input before it reaches the retrieval pipeline. `src/docquery/api/guard.py` NFKC-normalizes the query (flattening fullwidth-Latin homoglyphs) then runs regex/heuristic checks:
@@ -535,7 +620,8 @@ Optional body fields scope retrieval (see [Folder Facets](#folder-facets--scoped
 
 ### `POST /ingest`
 
-Returns `202 Accepted`. Ingestion runs in the background.
+Returns `202 Accepted`. Ingestion runs in the background. Requires the
+`AUTH_ADMIN_ROLE` app role when auth is on — see [Authentication](#authentication--azure-entra-id); a sector role alone answers `403`.
 
 ```bash
 curl -X POST http://localhost:8000/ingest \
@@ -559,6 +645,29 @@ curl http://localhost:8000/ingest/e3b0c442-...
 # {"task_id": "e3b0c442-...", "status": "done", "chunks": 65, "deleted": 0, "error": null}
 ```
 
+### `GET /conversations/{id}`
+
+Every turn of one of *your* conversations, oldest first. Requires `HISTORY_ENABLED`.
+
+```bash
+curl http://localhost:8000/conversations/3f2a... -H "Authorization: Bearer $TOKEN"
+# {"conversation_id": "3f2a...", "turns": [
+#   {"seq": 1, "question": "Qual o prazo...", "answer": "...", "rewritten_question": "",
+#    "citations": [...], "model": "gpt-4o-mini", "tokens_in": 812, "tokens_out": 96,
+#    "cost_usd": 0.000179, "created_at": "2026-08-15T18:44:02Z"}]}
+```
+
+Someone else's conversation, and one that never existed, both answer `404`.
+
+### `DELETE /conversations/{id}`
+
+```bash
+curl -X DELETE http://localhost:8000/conversations/3f2a... -H "Authorization: Bearer $TOKEN"
+# 204 No Content
+```
+
+Erases the conversation and its turns. Available regardless of the retention policy — see [Conversation History](#conversation-history--multi-turn--audit).
+
 Interactive docs: `http://localhost:8000/docs`
 
 ## Project Structure
@@ -580,20 +689,33 @@ docquery/
 │   │   ├── reranker.py        # cross-encoder reranking
 │   │   └── expand.py          # context expansion with the same sector guard
 │   ├── generate/
-│   │   └── rag.py             # context assembly + LLM + citations + cost tracking
+│   │   ├── rag.py             # context assembly + LLM + citations + cost tracking
+│   │   └── contextualize.py   # follow-up rewriting; reads questions, never answers
+│   ├── history/
+│   │   ├── store.py           # conversations + turns; ownership is a WHERE clause
+│   │   └── schema.sql         # applied on first use, IF NOT EXISTS throughout
 │   └── api/
 │       ├── app.py             # FastAPI app + security/rate-limit middlewares
 │       ├── guard.py           # prompt injection input validator + check_context
 │       ├── ratelimit.py       # sliding-window rate limit + body size cap
-│       ├── routes.py          # /health, /query (guard + RBAC), /ingest
-│       └── schemas.py         # request/response models (+ tokens_in/out/cost_usd)
+│       ├── routes.py          # /health, /config, /query(+/stream), /ingest, /conversations
+│       ├── schemas.py         # request/response models (+ tokens_in/out/cost_usd)
+│       └── static/            # the built SPA (generated; mounted at / if present)
+├── frontend/                  # TS + Vite, no framework; built in its own Docker stage
+│   └── src/
+│       ├── auth.ts            # MSAL, authorization code + PKCE, in-memory tokens
+│       ├── api.ts             # fetch + SSE parsing (POST, so questions stay out of URLs)
+│       ├── ui.ts              # sources-first rendering; citations bound to the prose
+│       └── styles.css         # system type stack — corporate TLS blocks font CDNs
 ├── eval/
 │   ├── dataset.json           # v1: 20 question-answer pairs
 │   ├── dataset_v2.json        # v2: 101 stratified questions (factual/multi-hop/comparative/unanswerable)
+│   ├── dataset_multiturn.json # opening + follow-up pairs for the rewrite check
 │   ├── run_eval.py            # RAGAS evaluation runner + cost tracking
 │   ├── scripts/
 │   │   ├── generate_v2.py     # LLM-as-generator for dataset expansion
 │   │   ├── compare_chunkers.py # eval across markdown/recursive/semantic
+│   │   ├── compare_followup.py # follow-up retrieval hit rate, rewrite on vs off
 │   │   └── ablation_reranker.py # reranker on vs off
 │   ├── security/
 │   │   └── injection_suite.py # 47-attack OWASP LLM Top 10 test suite (incl. PT-BR + NFKC evasions)
@@ -603,7 +725,8 @@ docquery/
 │   ├── contracts/             # example folder facet (folders=["contracts"])
 │   ├── policies/              # example folder facet (folders=["policies"])
 │   ├── manuals/               # example folder facet (folders=["manuals"])
-│   └── TAXONOMY.md            # content organization convention
+│   ├── TAXONOMY.md            # content organization convention
+│   └── ENTRA-SETUP.md         # the three app registrations, step by step
 ├── data/                      # real corpus to ingest — gitignored (set INGEST_ROOT=data)
 ├── tests/                     # pytest: api, chunker, expand, folders, guard, loader, rag_cost, rbac, sparse
 ├── .github/workflows/

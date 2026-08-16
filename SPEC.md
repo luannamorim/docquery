@@ -234,11 +234,11 @@ citation for transparency.
 
 Keep scope tight. This is a portfolio piece, not a startup:
 
-- Frontend/UI — API only, curl examples are enough
+- ~~Frontend/UI — API only, curl examples are enough~~ — **built anyway** (see below)
 - ~~Auth/RBAC — mention it as "production consideration" in README~~ — **built anyway** (see below)
 - Multiple LLM providers — one provider, mention swappability in config
-- Streaming responses — nice-to-have, not core value
-- Chat history/memory — this is a Q&A system, not a chatbot
+- ~~Streaming responses — nice-to-have, not core value~~ — **built anyway** (see below)
+- ~~Chat history/memory — this is a Q&A system, not a chatbot~~ — **built anyway** (see below)
 - ~~Complex document parsing (OCR, tables) — markdown + PDF text is enough~~ — **built anyway** (Docling)
 
 ### Delivered beyond this scope
@@ -248,6 +248,10 @@ Two items above were deliberately reopened after the original six phases, becaus
 - **Document parsing** — Docling ingestion (OCR, table structure, DOCX/PPTX/XLSX).
 - **Auth/RBAC** — Azure Entra ID bearer-token validation (`AUTH_ENABLED`) with app roles mapped to sector compartments: each document carries the top-level folder it lives in, each token the sectors its roles grant, and retrieval returns the intersection. Shipped first as a numeric clearance ladder, replaced once it became clear that levels nest and sectors do not — RH and Financeiro exclude each other, which no ordering can express.
 - **Remote sources** — ingestion from SharePoint and Google Drive folders by URI, pulled one-shot into a temporary directory. Not in the original scope either way; added because a corpus that only exists on a local disk is not the case the system is for.
+- **Conversation history** — `conversation_id`, follow-up resolution and an audit trail in MySQL (`HISTORY_ENABLED`). Reopened because a stateless `/query` breaks on the second question a person asks: "e a multa por atraso?" reaches retrieval with no anchor and matches whatever shares the word. A first turn is still never rewritten, so the RAGAS baseline stays comparable.
+- **Frontend and streaming** — a small TypeScript SPA served by the API itself, fed by an SSE endpoint that emits citations before the first token. These two fell together: an internal system whose users are HR and finance staff has no users if the only client is curl, and a chat interface that stares at a spinner for several seconds is not one people will keep using. `POST /query` remains unstreamed and unchanged — it is what `run_eval.py` measures.
+
+The pattern across all of these is the same one the auth section names: each was excluded as *portfolio scope*, and each became necessary once the system acquired real users and a real corpus. What has **not** been reopened is the framework question — there is still no LangChain/LlamaIndex orchestration, no ORM, and no frontend framework.
 
 ---
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-docquery is a production-grade RAG (Retrieval-Augmented Generation) system for querying technical documentation. It returns answers with citations and confidence scores, evaluated with RAGAS metrics. API-only — no frontend, no streaming, no chat history. Authentication is Azure Entra ID bearer-token validation, opt-in via `AUTH_ENABLED`.
+docquery is a production-grade RAG (Retrieval-Augmented Generation) system for querying technical documentation. It returns answers with citations and confidence scores, evaluated with RAGAS metrics. It ships a small browser client (TypeScript + Vite, no framework) served by the API itself, and streams answers over SSE — both listed under *What NOT to Build* in `SPEC.md` and both deliberately reopened, like Docling and Auth before them. Authentication is Azure Entra ID bearer-token validation, opt-in via `AUTH_ENABLED`. Conversation history (multi-turn follow-ups plus an audit trail) is opt-in via `HISTORY_ENABLED` and backed by MySQL; `SPEC.md` still lists it under *What NOT to Build*, deliberately reopened like Docling and Auth before it.
 
 ## Commands
 
@@ -30,7 +30,38 @@ Three independent pipelines:
 - **Query** — Query Embedding → Hybrid Retrieval (dense + BM25 via Qdrant) → Cross-encoder Reranking → Context Assembly → LLM Generation → Response with citations
 - **Evaluation** — RAGAS metrics (faithfulness, relevancy, context precision) with before/after comparison
 
-Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, chunker, pipeline), `retrieve/` (embedder, hybrid, reranker), `generate/` (rag), `api/` (app, routes, schemas, auth). Eval lives in `eval/`.
+Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, chunker, pipeline), `retrieve/` (embedder, hybrid, reranker), `generate/` (rag, contextualize), `api/` (app, routes, schemas, auth), `history/` (store, schema.sql). Eval lives in `eval/`.
+
+### Frontend conventions
+
+- **The API serves the SPA at `/`** (`mount_frontend` in `app.py`). Same origin is what keeps CORS out of this codebase — `app.py` still has none, deliberately. The mount is registered **last** (a `/` mount is a catch-all) and **conditionally** (a checkout has no build; tests and eval import the app without running npm).
+- **`GET /config` is the second and last open endpoint**, alongside `/health`. The browser needs the tenant and client ids *before* it can obtain a token, so it cannot require one. It carries only public identifiers.
+- **Streaming is POST, never GET.** `EventSource` only speaks GET, and a GET would put the question into access logs, proxy logs and browser history — undoing the care `rag.py` takes to log only a hash of the query. Clients parse SSE frames from `fetch` + `ReadableStream` instead.
+- Tokens live in MSAL's **memory** cache, not `localStorage`: a token in `localStorage` outlives the tab and is readable by any script on the origin.
+- No webfonts. This runs behind corporate TLS inspection that already blocks CDNs (see the HuggingFace note in `docker-compose.yml`); a font that fails to load is a design that fails to load.
+- Sector colour is **derived by hashing the folder name** (`sectorColor` in `ui.ts`), never configured — the same rule `folders.py` follows. A new folder gets a colour on first appearance.
+
+### Operating traps that have already cost time
+
+- **`docker compose restart` does not re-read `.env`.** It restarts the process with the environment the container was created with, so a new variable never arrives. Use `docker compose up -d` (which recreates) — and remember that recreating reverts to the **image**, discarding anything copied in with `docker cp`.
+- **A document that yields no chunks used to vanish silently.** A scanned PDF with no text layer produced zero chunks, the ingest reported success, and retrieval then answered questions about it with a confident "there is no such document". `warn_about_empty_documents` now names the file and points at `DOCLING_ENABLED`. Scanned corpora need `DOCLING_ENABLED=true`.
+- **Re-ingesting empties the corpus while it runs.** `_ingest_documents` deletes a source's chunks before inserting the new ones, so a query during that window gets "no documents matched". With OCR the window is minutes, not seconds.
+- **The rate limit keys on the socket address**, which behind Docker or a reverse proxy is the same for everybody — one bucket for the whole deployment. Set `RATE_LIMIT_TRUST_FORWARDED_FOR=true` wherever a proxy you control sets the header, and never where one does not.
+- **`configure_logging` sets `propagate = False` on the `docquery` logger**, and the FastAPI lifespan calls it — so any test building a `TestClient` breaks `caplog` for everything after it. `tests/conftest.py` restores the logger around every test; keep that fixture.
+
+### Answer language
+
+- The model is told to **answer in the language of the question** by default (`system_prompt` in `rag.py`), not the language of the retrieved passages — an English contract read by a Portuguese speaker should answer in Portuguese. `ANSWER_LANGUAGE` fixes it instead when a deployment wants one language regardless.
+- The three refusals in `_REFUSALS` never reach the model, so nothing else can translate them; they are keyed by language and fall back to English rather than raising. **The `no_match` wording must stay ambiguous between "nothing indexed" and "you cannot reach it" in every translation** — that ambiguity is the compartment guarantee, and translating it is exactly where it would be lost.
+
+### Conversation history conventions
+
+- **A first turn is never rewritten.** No `conversation_id` means no earlier question, so `contextualize` returns the query untouched *without calling the LLM*. That is what keeps `eval/dataset.json` comparable against the old baseline — the stateless path is byte-for-byte the path it always was.
+- **The rewriter sees questions, never answers.** Answers carry passages lifted from indexed documents; feeding them back into a prompt would make every ingested file a potential instruction. `check_input` also re-runs on the rewritten query, because it is model output built from caller text.
+- **Ownership is a `WHERE` clause, not a Python check.** Every store method takes the owner, so no path loads a conversation and decides afterwards. A conversation belonging to someone else is indistinguishable from one that does not exist — which is why the endpoints answer **404, never 403**: a 403 confirms the id to whoever is enumerating.
+- `history_enabled` requires `auth_enabled` (validated in `config.py`): a conversation is owned by the token's `oid`, and without one it has no owner.
+- Retention is unbounded by design; `DELETE /conversations/{id}` exists regardless, because the right to erasure does not depend on the retention policy.
+- Store tests are opt-in against a real MySQL (`-m mysql`, `DOCQUERY_MYSQL_TEST_DSN`), mirroring the Docling integration split. The endpoint tests swap the store through `app.dependency_overrides`, so CI needs no database.
 
 ### Ingest conventions
 
@@ -62,6 +93,7 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, ch
 | Auth | Azure Entra ID via `pyjwt[crypto]` | Resource-server validation only (JWKS, RS256); app roles → sector compartments |
 | Remote sources | `httpx` + `msal` / `google-auth` | Plain REST against Graph and Drive; avoids the msgraph-sdk and google-api-python-client stacks |
 | Chunking | LangChain text splitters only | Thin usage, no framework lock-in |
+| Conversation history | MySQL via `pymysql`, raw SQL | No ORM, matching how the project talks to Qdrant and OpenAI. Pure-Python driver so the slim image needs no C toolchain |
 
 ## Commit Workflow
 
