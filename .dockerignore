@@ -7,3 +7,8 @@ __pycache__/
 docs/
 tests/
 *.egg-info/
+# Installed inside the frontend build stage, never copied from the host — a
+# host node_modules would be the wrong platform and would bloat the context.
+frontend/node_modules/
+frontend/dist/
+src/docquery/api/static/

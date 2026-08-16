@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -5,6 +6,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class HealthResponse(BaseModel):
     status: Literal["ok"]
+
+
+class FrontendConfig(BaseModel):
+    """Public Entra identifiers for the browser client.
+
+    camelCase because it is consumed directly by TypeScript and nothing else;
+    renaming it on the client would only add a mapping layer to maintain.
+    """
+
+    tenantId: str
+    clientId: str
+    apiClientId: str
+    appName: str = "docquery"
 
 
 class QueryRequest(BaseModel):
@@ -25,6 +39,15 @@ class QueryRequest(BaseModel):
     )
 
     query: str = Field(min_length=1)
+    conversation_id: str | None = Field(
+        default=None,
+        max_length=36,
+        description=(
+            "Continue an earlier conversation: the question is resolved against "
+            "the questions already asked in it. Omit it to start a new one — the "
+            "id to continue with comes back in the response"
+        ),
+    )
     folders: list[str] | None = Field(
         default=None,
         description=(
@@ -72,6 +95,57 @@ class QueryResponse(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float = 0.0
+    conversation_id: str | None = Field(
+        default=None,
+        description=(
+            "Pass this back to ask a follow-up. None when history is disabled"
+        ),
+    )
+    rewritten_query: str | None = Field(
+        default=None,
+        description=(
+            "What actually went to retrieval, when the question was resolved "
+            "against earlier turns. None on a first turn, which is not rewritten"
+        ),
+    )
+
+
+class Turn(BaseModel):
+    seq: int = Field(description="1-based position in the conversation")
+    question: str
+    answer: str
+    rewritten_question: str = ""
+    citations: list[Source] = Field(default_factory=list)
+    model: str = ""
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
+    complete: bool = Field(
+        default=True,
+        description=(
+            "False when the client stopped receiving a streamed answer part-way"
+        ),
+    )
+    created_at: datetime
+
+
+class ConversationResponse(BaseModel):
+    conversation_id: str
+    turns: list[Turn]
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str = Field(
+        default="",
+        description="The opening question — what the user will recognise it by",
+    )
+    created_at: datetime
+    last_turn_at: datetime | None = None
+
+
+class ConversationListResponse(BaseModel):
+    conversations: list[ConversationSummary]
 
 
 class IngestRequest(BaseModel):

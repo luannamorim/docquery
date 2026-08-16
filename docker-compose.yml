@@ -29,6 +29,8 @@ services:
     depends_on:
       qdrant:
         condition: service_healthy
+      mysql:
+        condition: service_healthy
     restart: unless-stopped
 
   qdrant:
@@ -51,6 +53,30 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Conversation history. Only used when HISTORY_ENABLED=true; the service runs
+  # either way so enabling the feature needs no compose change. Point
+  # HISTORY_DSN at an existing corporate instance instead to skip it.
+  mysql:
+    image: mysql:8
+    # No 'ports' — like Qdrant, it stays on the internal network. Nothing
+    # outside the compose project has any business reaching the history.
+    expose:
+      - "3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-docquery}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # The app applies the schema on first use, so it must not start against a
+      # server that is still initialising.
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   qdrant_data:
   hf_cache:
+  mysql_data:

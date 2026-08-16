@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <!-- Supplied per deployment in public/. Absent is fine: the browser falls
+         back to its own default tab icon rather than showing anything broken.
+         The <title> is replaced at runtime with the configured APP_NAME. -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <title>docquery</title>
+  </head>
+  <body>
+    <!-- The first paint, and usually the only one before the browser leaves for
+         Entra. It has nothing true to say yet — no name, no user, no error — so
+         it says nothing and just shows that something is happening. -->
+    <div id="app" data-state="loading">
+      <div class="boot" role="status" aria-label="Carregando">
+        <span class="boot-dots"><i></i><i></i><i></i></span>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

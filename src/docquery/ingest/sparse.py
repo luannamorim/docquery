@@ -14,6 +14,29 @@ def _stable_hash(token: str) -> int:
     return int(hashlib.md5(token.encode()).hexdigest(), 16) % VOCAB_SIZE
 
 
+def document_terms(source: str, folders: list[str]) -> str:
+    """The document's own name and category, as terms BM25 can match.
+
+    A contract names its parties once and then says "a CONTRATADA" for the rest
+    of its length, so most of its chunks contain nothing that identifies which
+    contract they belong to. Asking for "o prazo do contrato da CRK" then loses
+    to a clause titled "DO PRAZO" in a different contract — it is the better
+    match for every word the query has to offer.
+
+    Only the file name and the folder facets. The rest of a path — the host, the
+    site, the drive — is identical for every document in a tenant, so indexing
+    it would add terms that separate nothing while diluting the ones that do.
+
+    Added to the lexical index only. The passage stored, shown in a citation and
+    sent to the model stays exactly what the document says; inventing text a
+    document does not contain is how a citation stops meaning anything.
+    """
+    name = source.replace("\\", "/").split("/")[-1]
+    stem = name.rsplit(".", 1)[0] if "." in name else name
+    parts = [p for p in re.split(r"[^A-Za-z0-9]+", stem) if p]
+    return " ".join([*parts, *folders]).lower()
+
+
 def sparse_vector(text: str) -> tuple[list[int], list[float]]:
     """Compute a BM25-style sparse term-frequency vector.
 

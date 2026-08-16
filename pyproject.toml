@@ -28,6 +28,11 @@ dependencies = [
     "httpx",
     "msal",
     "google-auth",
+    # Conversation history. Pure-Python driver on purpose: mysqlclient needs a
+    # C toolchain and libmysqlclient headers, which the slim runtime image does
+    # not carry. The SQL here is a handful of statements, so the speed
+    # difference is not worth a build stage.
+    "pymysql",
 ]
 
 [project.optional-dependencies]
@@ -62,6 +67,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "docling: end-to-end Docling conversion; needs the models, minutes to run",
+    "mysql: conversation store against a real MySQL; needs a server, opt-in",
 ]
 
 [[tool.uv.index]]

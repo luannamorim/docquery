@@ -18,11 +18,35 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from docquery.config import get_settings
 
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
-_EXEMPT_PATHS = frozenset({"/health"})
+_EXEMPT_PATHS = frozenset({"/health", "/"})
+#: Built assets. They cost nothing to serve and are requested several times per
+#: page load, so counting them spends an allowance meant for the endpoint that
+#: calls an LLM — a few refreshes could lock a user out of asking anything.
+_EXEMPT_PREFIXES = ("/assets/",)
+
+
+def client_key(peer: str, forwarded: str | None, settings) -> str:
+    """Which caller a request counts against.
+
+    The socket address is the honest answer only when the client dials us
+    directly. Behind Docker's bridge, a reverse proxy or an ingress, every
+    request arrives from the same address and one bucket ends up covering
+    everybody — the limiter then measures the proxy, not the caller.
+
+    X-Forwarded-For fixes that and is also caller-supplied, so honouring it by
+    default would let anyone escape the limit by inventing an address per
+    request. It is used only where an operator has said a trusted proxy sets
+    it, and only its first hop: the rest of the chain is whatever the client
+    chose to prepend.
+    """
+    if not settings.rate_limit_trust_forwarded_for:
+        return peer
+    first = (forwarded or "").split(",")[0].strip()
+    return first or peer
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Sliding-window per-IP rate limiter.
+    """Sliding-window per-caller rate limiter.
 
     Limit is taken from settings.rate_limit_requests_per_minute. A value <= 0
     disables the middleware entirely (useful in tests).
@@ -34,15 +58,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._lock = Lock()
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in _EXEMPT_PATHS:
+        path = request.url.path
+        if path in _EXEMPT_PATHS or path.startswith(_EXEMPT_PREFIXES):
             return await call_next(request)
-        limit = get_settings().rate_limit_requests_per_minute
+        settings = get_settings()
+        limit = settings.rate_limit_requests_per_minute
         if limit <= 0:
             return await call_next(request)
-        ip = request.client.host if request.client else "unknown"
+        key = client_key(
+            request.client.host if request.client else "unknown",
+            request.headers.get("x-forwarded-for"),
+            settings,
+        )
         now = time.monotonic()
         with self._lock:
-            bucket = self._hits.setdefault(ip, deque())
+            bucket = self._hits.setdefault(key, deque())
             while bucket and now - bucket[0] > _RATE_LIMIT_WINDOW_SECONDS:
                 bucket.popleft()
             if len(bucket) >= limit:

@@ -29,7 +29,7 @@ from docquery.ingest.loader import (
     load_document,
 )
 from docquery.ingest.sources import SourceError, fetch, source_scheme, validate_uri
-from docquery.ingest.sparse import sparse_vector
+from docquery.ingest.sparse import document_terms, sparse_vector
 from docquery.retrieve.embedder import embed_texts
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,20 @@ def ingest_chunks(
 
     texts = [c.text for c in chunks]
     dense_vectors = embed_texts(texts, settings=settings).tolist()
-    sparse_vectors = [sparse_vector(t) for t in texts]
+
+    # The document's name and folders join the lexical index but not the text.
+    # Without them, most chunks of a contract carry nothing saying which
+    # contract they are — see document_terms. Dense vectors are left alone: a
+    # file name is a label, and averaging it into the passage's meaning would
+    # blur the passage.
+    def _lexical(chunk: Chunk) -> str:
+        terms = document_terms(
+            str(chunk.metadata.get("source", "")),
+            list(chunk.metadata.get("folders") or []),
+        )
+        return terms + " " + chunk.text
+
+    sparse_vectors = [sparse_vector(_lexical(c)) for c in chunks]
 
     points = [
         PointStruct(
@@ -236,6 +249,41 @@ def _qdrant_client(settings: Settings) -> QdrantClient:
     )
 
 
+def warn_about_empty_documents(
+    docs: list, chunked_sources: set[str], settings: Settings
+) -> list[str]:
+    """Name every document that was read but produced nothing. Returns them.
+
+    A document that yields no chunks is indexed as if it did not exist, and the
+    ingest otherwise reports success — so the corpus quietly lacks a file the
+    operator watched it process. Retrieval then answers questions about that
+    document with a confident, complete-sounding "there is no such thing",
+    which is the worst shape this failure could take.
+
+    The overwhelmingly common cause is a scanned PDF: pages of images with no
+    text layer, which the legacy parsers cannot read. Docling with OCR can, so
+    the warning says so — but only when it is off, since telling an operator to
+    flip a switch they already flipped sends them in a circle.
+    """
+    empty = [
+        source
+        for doc in docs
+        if (source := doc.metadata.get("source", "")) and source not in chunked_sources
+    ]
+    if not empty:
+        return []
+
+    for source in empty:
+        logger.warning("No text extracted from %s — it will not be searchable", source)
+    if not settings.docling_enabled:
+        logger.warning(
+            "%d document(s) produced no text. Scanned PDFs need OCR: set "
+            "DOCLING_ENABLED=true and ingest again.",
+            len(empty),
+        )
+    return empty
+
+
 def _ingest_documents(
     docs: list,
     client: QdrantClient,
@@ -255,6 +303,9 @@ def _ingest_documents(
         all_chunks.extend(chunk_document(doc, settings=settings))
 
     sources_to_ingest = {doc.metadata.get("source", "") for doc in docs} - {""}
+    warn_about_empty_documents(
+        docs, {c.metadata.get("source", "") for c in all_chunks}, settings
+    )
     delete_chunks_for_sources(client, settings, sources_to_ingest)
     ingest_chunks(all_chunks, client, settings)
     logger.info(

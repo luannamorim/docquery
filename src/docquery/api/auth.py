@@ -163,3 +163,34 @@ def require_auth(
             status_code=401, detail="Not authenticated", headers=_MISSING_TOKEN_HEADERS
         )
     return validate_token(credentials.credentials, settings)
+
+
+def require_admin(
+    settings: Annotated[Settings, Depends(get_settings)],
+    claims: Annotated[dict | None, Depends(require_auth)] = None,
+) -> None:
+    """Allow only callers holding the ingestion role.
+
+    Ingestion is the one operation that rewrites what everyone else reads: it
+    deletes a source's chunks before writing the new ones, so triggering it
+    repeatedly empties the corpus for every reader in turn. Requiring a token
+    was never enough — that only proved the caller worked here.
+
+    403 rather than the 404 the conversation routes answer with. A conversation
+    id is a secret worth not confirming; /ingest is in the OpenAPI document, and
+    pretending it is absent would only mislead the operator who does hold the
+    role.
+
+    With auth off there is no identity to check and the quickstart ingests
+    without one, so the check does not apply — the same rule get_user_sectors
+    follows.
+    """
+    if not settings.auth_enabled:
+        return
+    if settings.auth_admin_role not in (claims or {}).get("roles", []):
+        logger.warning(
+            "Ingestion refused: token lacks the %s role", settings.auth_admin_role
+        )
+        raise HTTPException(
+            status_code=403, detail="This action requires the ingestion role"
+        )

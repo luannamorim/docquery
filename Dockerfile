@@ -1,3 +1,22 @@
+# Frontend build. Its own stage so node never reaches the runtime image — the
+# result is a directory of static files, and nothing that produced them is
+# needed to serve them.
+FROM node:22-slim AS frontend
+
+WORKDIR /build
+
+# Manifests first: dependencies only reinstall when they actually change, not
+# on every edit to a component.
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
+
+COPY frontend/ ./
+# vite.config.ts writes to ../src/docquery/api/static, which is outside this
+# stage's context — point it somewhere local and let the runtime stage place it.
+RUN npx vite build --outDir dist --emptyOutDir
+
+# ---
+
 FROM python:3.12.11-slim AS builder
 
 WORKDIR /app
@@ -20,14 +39,20 @@ COPY pyproject.toml uv.lock ./
 
 RUN uv sync --no-dev --no-install-project
 
-COPY src/ src/
-RUN uv sync --no-dev
-
 # Fetch Docling's model weights at build time so conversion never reaches the
 # network at runtime. Only the models the pipeline actually uses: layout
 # analysis, TableFormer for table structure, and RapidOCR for scanned pages.
+#
+# Deliberately BEFORE `COPY src/`. docling-tools is a console script from the
+# docling dependency, so it exists as soon as the sync above finishes and this
+# layer depends on nothing but pyproject.toml/uv.lock. Below the COPY, every
+# edit to a single Python file would invalidate it and re-download hundreds of
+# megabytes of weights — which is exactly what it used to do.
 RUN /app/.venv/bin/docling-tools models download \
     -o /opt/docling-models layout tableformer rapidocr
+
+COPY src/ src/
+RUN uv sync --no-dev
 
 # ---
 
@@ -43,6 +68,10 @@ RUN apt-get update \
 COPY --from=builder /app/.venv .venv
 COPY --from=builder /opt/docling-models /opt/docling-models
 COPY src/ src/
+# The SPA, served by the API itself at "/" — same origin, so there is no CORS
+# to configure and no second thing to deploy. app.py mounts this directory if
+# it exists, so an image built without it still serves the API.
+COPY --from=frontend /build/dist src/docquery/api/static
 
 RUN useradd --create-home appuser \
     && mkdir -p eval/results /home/appuser/.cache/huggingface \

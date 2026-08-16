@@ -1,15 +1,22 @@
+import json
 import logging
 import uuid
 from collections import OrderedDict
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Response
+from fastapi.responses import StreamingResponse
+from openai import OpenAI
 
-from docquery.api.auth import require_auth, roles_to_sectors
+from docquery.api.auth import require_admin, require_auth, roles_to_sectors
 from docquery.api.guard import check_input
 from docquery.api.schemas import (
+    ConversationListResponse,
+    ConversationResponse,
+    FrontendConfig,
     HealthResponse,
     IngestJobResponse,
     IngestRequest,
@@ -19,7 +26,9 @@ from docquery.api.schemas import (
 )
 from docquery.config import Settings, get_settings
 from docquery.folders import normalize_segment
-from docquery.generate.rag import query_pipeline
+from docquery.generate.contextualize import contextualize
+from docquery.generate.rag import query_pipeline, query_pipeline_stream
+from docquery.history.store import ConversationStore
 from docquery.ingest.pipeline import ingest_source
 from docquery.ingest.sources import (
     SourceError,
@@ -66,6 +75,53 @@ def get_user_sectors(
 
 
 SectorsDep = Annotated[list[str] | None, Depends(get_user_sectors)]
+
+
+@lru_cache
+def _store_for(dsn: str) -> ConversationStore:
+    """One store per DSN, schema applied once.
+
+    Cached because ConversationStore holds no connection — it opens one per
+    operation — so the only cost worth avoiding is re-running init_schema on
+    every request.
+    """
+    store = ConversationStore(dsn)
+    store.init_schema()
+    return store
+
+
+def get_store(settings: SettingsDep) -> ConversationStore | None:
+    """The conversation store, or None when history is off.
+
+    A dependency rather than a module global so tests can swap it through
+    app.dependency_overrides — the same reason auth takes Settings as a
+    parameter instead of calling get_settings().
+    """
+    if not settings.history_enabled:
+        return None
+    return _store_for(settings.history_dsn)
+
+
+StoreDep = Annotated["ConversationStore | None", Depends(get_store)]
+
+
+def get_owner(
+    settings: SettingsDep,
+    claims: Annotated[dict | None, Depends(require_auth)],
+) -> str | None:
+    """Who owns the conversations of this request: the token's object id.
+
+    None means "no owner can be established", which disables history for the
+    request rather than falling back to a shared bucket. history_enabled
+    already requires auth_enabled, so this is the residual case of a token that
+    carries no oid at all.
+    """
+    if not settings.history_enabled:
+        return None
+    return (claims or {}).get("oid") or None
+
+
+OwnerDep = Annotated[str | None, Depends(get_owner)]
 
 
 class _TaskStore:
@@ -146,27 +202,325 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+@system_router.get("/config", tags=["system"])
+def frontend_config(settings: SettingsDep) -> FrontendConfig:
+    """Public identifiers the browser needs before it can obtain a token.
+
+    On system_router, and that is the point: a client cannot present a bearer
+    token until it knows which tenant and which client id to ask for one with.
+    The second and last deliberate exception to "new endpoints go on `router`",
+    alongside /health.
+
+    Everything here is public by definition — tenant and application ids are
+    identifiers, and the SPA is a public client with no secret to leak. Serving
+    them rather than baking them into the bundle is what lets one image be
+    configured per environment.
+    """
+    return FrontendConfig(
+        tenantId=settings.azure_tenant_id,
+        clientId=settings.frontend_client_id,
+        apiClientId=settings.azure_client_id,
+        appName=settings.app_name,
+    )
+
+
+def _owned_turns(conversation_id: str, store, owner: str | None) -> list:
+    """The caller's turns, or 404.
+
+    404 and never 403: a 403 would confirm the id belongs to somebody, which is
+    precisely what someone enumerating ids is after. History being off answers
+    the same way, so probing cannot tell a disabled feature from a missing
+    conversation either.
+    """
+    turns = (
+        None
+        if store is None or owner is None
+        else store.turns(conversation_id, owner=owner)
+    )
+    if turns is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return turns
+
+
+def _resolve_follow_up(
+    query: str,
+    conversation_id: str | None,
+    store,
+    owner: str | None,
+    settings: Settings,
+) -> tuple[str, bool]:
+    """Return (query to retrieve with, whether it was rewritten).
+
+    A first turn is never rewritten: no earlier question means nothing to
+    resolve, the LLM is not called, and the pipeline runs exactly as it did
+    before conversations existed — which is what keeps the eval baseline
+    comparable.
+    """
+    if store is None or owner is None or not conversation_id:
+        return query, False
+
+    previous = store.previous_questions(
+        conversation_id, owner=owner, limit=settings.history_context_turns
+    )
+    if not previous:
+        return query, False
+
+    openai_client = OpenAI(
+        api_key=settings.openai_api_key.get_secret_value() or None,
+        timeout=settings.openai_timeout_seconds,
+        max_retries=settings.openai_max_retries,
+    )
+    try:
+        resolved = contextualize(query, previous, settings, openai_client)
+    except Exception:
+        # A failed rewrite must not fail the question. Retrieving with the
+        # original text gives a worse answer for a follow-up, not no answer.
+        logger.warning("Follow-up rewrite failed; retrieving with the original query")
+        return query, False
+    return resolved, resolved != query
+
+
 @router.post("/query", tags=["query"])
 def query(
     request: QueryRequest,
     settings: SettingsDep,
     sectors: SectorsDep,
+    store: StoreDep,
+    owner: OwnerDep,
 ) -> QueryResponse:
     blocked, reason = check_input(request.query)
     if blocked:
         raise HTTPException(status_code=400, detail=f"Query rejected: {reason}")
+
+    history_on = store is not None and owner is not None
+    conversation_id = request.conversation_id
+    if history_on and conversation_id:
+        # Resolving against a conversation the caller does not own must not
+        # reveal that it exists, so an unknown id is refused exactly like
+        # someone else's.
+        if store.turns(conversation_id, owner=owner) is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+    elif not history_on:
+        conversation_id = None
+
+    retrieval_query, rewritten = _resolve_follow_up(
+        request.query, conversation_id, store, owner, settings
+    )
+    if rewritten:
+        # The rewrite is model output built from caller-supplied text, so it
+        # goes through the same guard the original question did rather than
+        # being trusted because we produced it.
+        blocked, reason = check_input(retrieval_query)
+        if blocked:
+            raise HTTPException(status_code=400, detail=f"Query rejected: {reason}")
+
     result = query_pipeline(
-        request.query,
+        retrieval_query,
         settings=settings,
         sectors=sectors,
         folders=request.folders,
         source=request.source,
         tags=request.tags,
     )
-    return QueryResponse(**result)
+    # The caller asked their question, not our rewrite of it.
+    result["query"] = request.query
+
+    if history_on:
+        if conversation_id is None:
+            conversation_id = store.create(owner=owner)
+        store.append(
+            conversation_id,
+            owner=owner,
+            question=request.query,
+            answer=result["answer"],
+            rewritten_question=retrieval_query if rewritten else "",
+            citations=result["sources"],
+            sectors=sectors or [],
+            model=result["model"],
+            tokens_in=result["tokens_in"],
+            tokens_out=result["tokens_out"],
+            cost_usd=result["cost_usd"],
+        )
+
+    return QueryResponse(
+        **result,
+        conversation_id=conversation_id,
+        rewritten_query=retrieval_query if rewritten else None,
+    )
 
 
-@router.post("/ingest", tags=["ingest"], status_code=202)
+#: Buffering is the failure mode that looks like success: a proxy that holds the
+#: body delivers a complete, correct response with no error anywhere — the
+#: stream simply stops being a stream. nginx and friends honour this.
+#:
+#: No Cache-Control here on purpose: SecurityHeadersMiddleware already sets
+#: no-store on every response, which is stricter than the no-cache an SSE
+#: endpoint would normally ask for, and setting it here would just be overridden.
+_SSE_HEADERS = {"X-Accel-Buffering": "no"}
+
+
+def _sse(event: str, payload: dict) -> str:
+    # separators without spaces, and no newlines inside data: a raw newline
+    # would terminate the SSE frame early and split one event into two.
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@router.post("/query/stream", tags=["query"])
+def query_stream(
+    request: QueryRequest,
+    settings: SettingsDep,
+    sectors: SectorsDep,
+    store: StoreDep,
+    owner: OwnerDep,
+) -> StreamingResponse:
+    """The same answer as POST /query, delivered as it is produced.
+
+    POST rather than GET even though EventSource only speaks GET: a GET puts the
+    question in the URL, and from there into access logs, proxy logs and browser
+    history. rag.py logs only a hash of the query precisely to avoid that, and a
+    streaming endpoint must not undo it. Clients read this with fetch() and a
+    ReadableStream instead.
+    """
+    blocked, reason = check_input(request.query)
+    if blocked:
+        raise HTTPException(status_code=400, detail=f"Query rejected: {reason}")
+
+    history_on = store is not None and owner is not None
+    conversation_id = request.conversation_id
+    if history_on and conversation_id:
+        if store.turns(conversation_id, owner=owner) is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+    elif not history_on:
+        conversation_id = None
+
+    retrieval_query, rewritten = _resolve_follow_up(
+        request.query, conversation_id, store, owner, settings
+    )
+    if rewritten:
+        blocked, reason = check_input(retrieval_query)
+        if blocked:
+            raise HTTPException(status_code=400, detail=f"Query rejected: {reason}")
+
+    def events():
+        nonlocal conversation_id
+        answer = ""
+        final: dict = {}
+        try:
+            for event in query_pipeline_stream(
+                retrieval_query,
+                settings=settings,
+                sectors=sectors,
+                folders=request.folders,
+                source=request.source,
+                tags=request.tags,
+            ):
+                kind = event["type"]
+                if kind == "sources":
+                    yield _sse("sources", {"sources": event["sources"]})
+                elif kind == "token":
+                    answer += event["text"]
+                    yield _sse("token", {"t": event["text"]})
+                else:
+                    final = event
+        except Exception:
+            # The status line is long gone by now, so an error cannot be a 500 —
+            # it has to travel as an event. The detail is deliberately generic,
+            # matching how the rest of the API answers.
+            logger.exception("Streaming query failed")
+            yield _sse("error", {"detail": "Query failed"})
+            return
+        finally:
+            # Runs on client disconnect too, where the generator is closed
+            # mid-stream. The partial answer was already delivered to the user,
+            # so the audit trail records what they saw rather than nothing —
+            # `complete` says which of the two happened.
+            if history_on and answer:
+                if conversation_id is None:
+                    conversation_id = store.create(owner=owner)
+                store.append(
+                    conversation_id,
+                    owner=owner,
+                    question=request.query,
+                    answer=answer,
+                    rewritten_question=retrieval_query if rewritten else "",
+                    citations=final.get("sources", []),
+                    sectors=sectors or [],
+                    model=final.get("model", settings.llm_model),
+                    tokens_in=final.get("tokens_in", 0),
+                    tokens_out=final.get("tokens_out", 0),
+                    cost_usd=final.get("cost_usd", 0.0),
+                    complete=bool(final),
+                )
+
+        yield _sse(
+            "done",
+            {
+                "conversation_id": conversation_id,
+                "query": request.query,
+                "rewritten_query": retrieval_query if rewritten else None,
+                "model": final.get("model", settings.llm_model),
+                "tokens_in": final.get("tokens_in", 0),
+                "tokens_out": final.get("tokens_out", 0),
+                "cost_usd": final.get("cost_usd", 0.0),
+            },
+        )
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream", headers=_SSE_HEADERS
+    )
+
+
+@router.get("/conversations", tags=["history"])
+def list_conversations(
+    store: StoreDep,
+    owner: OwnerDep,
+) -> ConversationListResponse:
+    """The caller's own conversations, most recent first.
+
+    Registered before /conversations/{conversation_id} so the literal path is
+    matched first — Starlette resolves in declaration order, and the parameter
+    route would otherwise capture "conversations" as an id.
+    """
+    if store is None or owner is None:
+        return ConversationListResponse(conversations=[])
+    return ConversationListResponse(conversations=store.list_conversations(owner=owner))
+
+
+@router.get("/conversations/{conversation_id}", tags=["history"])
+def get_conversation(
+    conversation_id: str,
+    store: StoreDep,
+    owner: OwnerDep,
+) -> ConversationResponse:
+    turns = _owned_turns(conversation_id, store, owner)
+    return ConversationResponse(conversation_id=conversation_id, turns=turns)
+
+
+@router.delete("/conversations/{conversation_id}", tags=["history"], status_code=204)
+def delete_conversation(
+    conversation_id: str,
+    store: StoreDep,
+    owner: OwnerDep,
+) -> Response:
+    """Erase a conversation. Available regardless of the retention policy.
+
+    Retention is unbounded by configuration, but the right to erasure belongs to
+    the data subject and does not depend on it — without this route there is no
+    way to answer such a request.
+    """
+    if store is None or owner is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if not store.delete(conversation_id, owner=owner):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return Response(status_code=204)
+
+
+@router.post(
+    "/ingest",
+    tags=["ingest"],
+    status_code=202,
+    dependencies=[Depends(require_admin)],
+)
 def ingest(
     request: IngestRequest,
     background_tasks: BackgroundTasks,
@@ -194,7 +548,7 @@ def ingest(
     return IngestJobResponse(task_id=task_id, status="pending")
 
 
-@router.get("/ingest/{task_id}", tags=["ingest"])
+@router.get("/ingest/{task_id}", tags=["ingest"], dependencies=[Depends(require_admin)])
 def ingest_status(task_id: str, settings: SettingsDep) -> IngestStatusResponse:
     task = _tasks.get(task_id, settings)
     if task is None:

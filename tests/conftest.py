@@ -14,6 +14,8 @@ defaults, the same on any machine and in CI.
 Tests that need a configured value pass it explicitly, which they already do.
 """
 
+import logging
+
 import pytest
 
 from docquery.config import Settings, get_settings
@@ -23,3 +25,23 @@ from docquery.config import Settings, get_settings
 def _ignore_developer_env_file() -> None:
     Settings.model_config["env_file"] = None
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _restore_docquery_logger():
+    """Undo what the app's startup does to the shared `docquery` logger.
+
+    configure_logging() sets propagate = False so our handler is the only one
+    that prints, and it runs from the FastAPI lifespan — which means *any* test
+    that builds a TestClient triggers it, not just the logging tests.
+
+    pytest's caplog captures through a handler on the root logger, so once
+    propagation is off, every later test asserting on a log record sees nothing
+    and fails for a reason that has nothing to do with what it is testing.
+    """
+    logger = logging.getLogger("docquery")
+    level, propagate, handlers = logger.level, logger.propagate, list(logger.handlers)
+    yield
+    logger.setLevel(level)
+    logger.propagate = propagate
+    logger.handlers = handlers

@@ -112,19 +112,69 @@ class Settings(BaseSettings):
     # roles; a token with no mapped role reads nothing. Folders everyone may
     # read are an ordinary sector whose role is granted to every employee.
     auth_role_sector_map: list[tuple[str, str]] = []
+    # The app role that may run ingestion. Separate from the sector roles: those
+    # say what a caller may *read*, this says they may rebuild what everyone
+    # reads. Configurable because an Entra role value cannot carry every name a
+    # tenant already uses.
+    auth_admin_role: str = "docquery.admin"
+    # The browser app's own registration (type SPA), separate from
+    # azure_client_id: that one names this API as a token audience, this one is
+    # the public client that obtains tokens for it. Served to the browser by
+    # GET /config so one image can be configured per environment. Also not a
+    # secret — a public client has none by definition.
+    frontend_client_id: str = ""
+    # What the browser calls this deployment. Served to the client rather than
+    # compiled into the bundle so one image can carry any company's name.
+    app_name: str = "docquery"
     # Clock skew tolerance for exp/nbf/iat. Without it, container clock drift
     # produces intermittent 401s that are hard to diagnose.
     auth_leeway_seconds: int = 60
 
+    # Conversation history
+    # Opt-in like auth_enabled and docling_enabled: the quickstart and the eval
+    # runner have no MySQL, and a stateless /query stays the default. History is
+    # owned by the token's `oid`, so it also requires auth_enabled — an
+    # unauthenticated deployment has no identity to attach a conversation to.
+    history_enabled: bool = False
+    history_dsn: str = ""
+    # How many earlier questions the follow-up rewrite may see. Bounded because
+    # the rewrite is one LLM call whose prompt grows with the conversation, and
+    # a reference more than a few turns back is rare enough not to pay for.
+    history_context_turns: int = 6
+    # Retention is deliberately unbounded: the corpus is contractual and the
+    # audit trail is expected to outlive the conversation. Erasure is on demand
+    # through DELETE /conversations/{id}, which is what the right to erasure
+    # (LGPD art. 18) actually requires.
+
     # Ingest task store
     task_ttl_seconds: int = 3600
     task_max_size: int = 1000
+
+    # Language of the answer. Empty (the default) tells the model to reply in
+    # the language the question was asked in, which is right when the corpus and
+    # the readers do not share one — an English contract read by Portuguese
+    # speakers should still answer in Portuguese. Set it (e.g. "pt-BR") to fix
+    # the language regardless of the question; it also selects the wording of
+    # the refusals that never reach the model.
+    answer_language: str = ""
+
+    # Logging. INFO by default because that is the level the access decisions
+    # are logged at ("Query authorized for sectors=..."), and uvicorn leaves the
+    # root logger at WARNING, which would drop them.
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     # Guard
     guard_max_query_length: int = 2000
 
     # Rate limit / body cap
     rate_limit_requests_per_minute: int = 60
+    # Honour X-Forwarded-For when deciding who a request belongs to. Off by
+    # default because the header is caller-supplied: trusting it unconditionally
+    # would let anyone escape the limit by inventing an address per request.
+    # Turn it on ONLY where a reverse proxy you control sets it — and then it is
+    # required, since otherwise every client shares the proxy's address and the
+    # limit throttles the whole deployment as one caller.
+    rate_limit_trust_forwarded_for: bool = False
     request_max_body_bytes: int = 1_048_576
 
     # LLM
@@ -136,6 +186,24 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1024
     llm_price_input_per_1m: float = 0.15
     llm_price_output_per_1m: float = 0.60
+    # Follow-up rewriting. Small on purpose: the output is one question, and a
+    # generous ceiling here would let a rewrite run long enough to become an
+    # answer.
+    contextualize_max_tokens: int = 120
+
+    # Splitting a question that asks for two unrelated things. Off by default:
+    # it costs an LLM call on every question, including the simple ones that
+    # gain nothing from it — and having the switch is what lets the eval measure
+    # the feature against its own absence.
+    query_decompose_enabled: bool = False
+    # Each part costs its own retrieval and rerank, so the ceiling is the cost
+    # ceiling. Three covers the compound questions people actually ask.
+    query_decompose_max_parts: int = 3
+    query_decompose_max_tokens: int = 160
+    # Ceiling on the merged context across all parts. Without it, three parts of
+    # reranker_top_k would triple the prompt — and the expansion window
+    # multiplies whatever lands here by three again.
+    query_decompose_max_contexts: int = 8
 
     @field_validator(
         "docling_artifacts_path", "gdrive_service_account_file", mode="before"
@@ -152,6 +220,24 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @model_validator(mode="after")
+    def _check_history_config(self) -> "Settings":
+        """Fail fast when history is on but cannot work.
+
+        A conversation is owned by a token's oid, so without auth there is no
+        owner — every conversation would be readable by whoever guessed its id.
+        Booting into that state is worse than not booting.
+        """
+        if self.history_enabled:
+            if not self.history_dsn:
+                raise ValueError("history_enabled requires history_dsn")
+            if not self.auth_enabled:
+                raise ValueError(
+                    "history_enabled requires auth_enabled: a conversation is "
+                    "owned by the token's oid, and without one it has no owner"
+                )
+        return self
 
     @model_validator(mode="after")
     def _check_auth_config(self) -> "Settings":
