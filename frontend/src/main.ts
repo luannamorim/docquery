@@ -43,6 +43,16 @@ let searchOpen = false;
 /** The part of an address a person recognises themselves by.
  *  ana.silva@empresa.com.br is the same person in every row of the sidebar;
  *  the domain is the same for everyone and earns none of that width. */
+/** Put the caret where the next thing to do is.
+ *
+ *  Queried rather than threaded through: refreshRail is called from the rail,
+ *  from opening a conversation and from starting a new one, and passing the
+ *  textarea down every one of those paths would be more wiring than the single
+ *  element in the app is worth. */
+function focusComposer(): void {
+  root.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
+}
+
 function shortName(username: string): string {
   return username.split("@")[0] || username;
 }
@@ -199,6 +209,8 @@ async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLEl
     turns.replaceChildren();
     showEmpty(turns);
     void refreshRail(rail, turns, scroll);
+    // Starting a conversation is the act of wanting to type one.
+    focusComposer();
   });
   rail.append(fresh);
 
@@ -344,6 +356,8 @@ async function open(
   }
   await refreshRail(rail, turns, scroll);
   scroll.scrollTop = scroll.scrollHeight;
+  // Reopening a conversation is almost always continuing it.
+  focusComposer();
 }
 
 async function submit(
