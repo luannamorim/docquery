@@ -1,10 +1,23 @@
-"""Generate eval/dataset_v2.json — ~100 stratified Q&A pairs from docs/sample/.
+"""Generate a stratified Q&A dataset from a corpus.
 
-Reads each markdown doc in chunks, prompts gpt-4o-mini to generate questions
-per type, then writes dataset_v2.json for manual review before committing.
+Reads every ingestable document under --docs (recursively, through the project's
+own loader, so PDFs and scans go through the same path the retriever indexed),
+prompts gpt-4o-mini to generate questions per type, and writes the result for
+manual review before committing.
 
 Usage:
-    python eval/scripts/generate_v2.py [--docs docs/sample] [--out eval/dataset_v2.json]
+    # the sample corpus, as before
+    python eval/scripts/generate_v2.py
+
+    # a real corpus, to measure retrieval against the documents people ask about
+    python eval/scripts/generate_v2.py --docs data --out eval/dataset_real.json
+
+A dataset built from the sample docs measures a corpus nobody queries. Tuning
+retrieval — reranker_top_k, the score threshold, whether question decomposition
+pays for itself — needs questions about the documents actually in the index.
+
+**This sends document text to the LLM.** The same exposure every query already
+has, but a corpus at a time rather than a passage.
 
 Question types generated:
     factual      (~40) — single-document, single-hop, explicit answer in text
@@ -117,7 +130,31 @@ Return ONLY the JSON, no markdown fences.
 
 
 def _read_doc(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    """Read a document through the project's own loader.
+
+    Not read_text: a real corpus is PDF and DOCX, and a scanned PDF needs the
+    OCR path. Going through load_document means the questions are generated from
+    exactly the text that was indexed — a second parser here would produce a
+    dataset that measures a corpus the retriever never saw.
+    """
+    from docquery.ingest.loader import load_document
+
+    doc = load_document(path, settings=get_settings())
+    return getattr(doc, "content", "") or ""
+
+
+def _iter_docs(root: Path) -> list[Path]:
+    """Every ingestable file under root, recursively.
+
+    Recursive because the folders are the taxonomy: a corpus is `contracts/`,
+    `policies/`, `manuals/`, never a flat directory.
+    """
+    from docquery.ingest.loader import _supported_extensions
+
+    wanted = _supported_extensions(get_settings())
+    return sorted(
+        p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in wanted
+    )
 
 
 def _call_llm(client: OpenAI, model: str, prompt: str) -> list[dict]:
@@ -213,11 +250,20 @@ def main() -> None:
     client = OpenAI(api_key=settings.openai_api_key.get_secret_value() or None)
     model = settings.llm_model
 
-    doc_files = sorted(args.docs.glob("*.md"))
+    doc_files = _iter_docs(args.docs)
     if not doc_files:
-        sys.exit(f"No .md files found in {args.docs}")
+        sys.exit(f"No ingestable files found under {args.docs}")
 
-    docs = {f.name: _read_doc(f) for f in doc_files}
+    # Keyed by the path relative to the root, not the bare name: two folders can
+    # hold a "contrato.pdf", and the expected source in the dataset has to say
+    # which one.
+    docs = {str(f.relative_to(args.docs)): _read_doc(f) for f in doc_files}
+    docs = {name: text for name, text in docs.items() if text.strip()}
+    if not docs:
+        sys.exit(
+            f"Every file under {args.docs} produced empty text. Scanned PDFs "
+            "need DOCLING_ENABLED=true."
+        )
     topics = ", ".join(docs.keys())
 
     print(f"Generating dataset_v2 from {len(docs)} docs using {model}...")

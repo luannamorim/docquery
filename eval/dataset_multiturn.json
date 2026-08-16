@@ -1,0 +1,32 @@
+[
+  {
+    "opening": "Qual o prazo de pagamento do contrato da Acme Supply?",
+    "follow_up": "e a multa por atraso?",
+    "expected_source_contains": "acme_supply_2024"
+  },
+  {
+    "opening": "O que o guia de deployment diz sobre variáveis de ambiente?",
+    "follow_up": "e sobre os secrets?",
+    "expected_source_contains": "deployment_guide"
+  },
+  {
+    "opening": "Como funciona a busca híbrida no docquery?",
+    "follow_up": "ela usa qual modelo?",
+    "expected_source_contains": "architecture"
+  },
+  {
+    "opening": "Quais são as regras da política de segurança da informação?",
+    "follow_up": "quem é o responsável por elas?",
+    "expected_source_contains": "information_security"
+  },
+  {
+    "opening": "Como o chunker semântico decide onde quebrar o texto?",
+    "follow_up": "e quando ele falha?",
+    "expected_source_contains": "ingestion"
+  },
+  {
+    "opening": "O que o reranker cross-encoder faz depois da recuperação?",
+    "follow_up": "quanto ele custa em latência?",
+    "expected_source_contains": "query_pipeline"
+  }
+]
