@@ -212,10 +212,26 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Eval datasets — one built from the real corpus carries its file names, party
+# names and paths, even when it holds no passage text. Catch-all with a
+# carve-out, the same shape the .env block above uses: the three datasets built
+# from docs/sample stay tracked, and anything new stays local until someone
+# confirms it is not confidential.
+eval/dataset*.json
+!eval/dataset.json
+!eval/dataset_v2.json
+!eval/dataset_multiturn.json
+
 # Eval runs — only the curated baseline and milestone snapshots are tracked.
 # Ad-hoc `make eval` output lands here and should stay local.
-eval/results/*.json
+#
+# `**/` and not `eval/results/*.json`: that pattern matches direct children
+# only, so a comparison run written into its own subdirectory
+# (eval/results/document_scope/) escaped it entirely.
+eval/results/**/*.json
 !eval/results/baseline.json
+!eval/results/milestones/*.json
+!eval/results/security/*.json
 
 # Claude Code agent runtime memory — written by subagents at run time, goes
 # stale fast as the code evolves. The agent definitions themselves live in

@@ -1,4 +1,4 @@
-.PHONY: serve serve-prod ingest eval eval-v2 generate-dataset compare-chunkers ablation-reranker security-suite test lint format
+.PHONY: serve serve-prod ingest eval eval-v2 generate-dataset compare-chunkers compare-document-scope ablation-reranker security-suite test lint format
 
 serve:
 	uv run fastapi dev
@@ -20,6 +20,9 @@ generate-dataset:
 
 compare-chunkers:
 	uv run python eval/scripts/compare_chunkers.py
+
+compare-document-scope:
+	uv run python eval/scripts/compare_document_scope.py
 
 ablation-reranker:
 	uv run python eval/scripts/ablation_reranker.py
