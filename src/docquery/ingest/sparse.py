@@ -4,6 +4,21 @@ from collections import Counter
 
 VOCAB_SIZE = 30_000
 
+#: The one tokenizer. Query side and index side must agree exactly or a term the
+#: index holds is not the term the query asks for, so everything that tokenizes
+#: for retrieval goes through `tokens` rather than repeating this pattern.
+_TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def tokens(text: str) -> list[str]:
+    """Lowercase alphanumeric runs, in order, with repeats kept.
+
+    No stemming and no stopword list: Qdrant's Modifier.IDF already discounts
+    terms that appear everywhere, which is the job a stopword list would do
+    worse.
+    """
+    return _TOKEN.findall(text.lower())
+
 
 def _stable_hash(token: str) -> int:
     """Map a token to a stable integer index via MD5.
@@ -46,10 +61,10 @@ def sparse_vector(text: str) -> tuple[list[int], list[float]]:
 
     Returns (indices, values) for SparseVector(indices=..., values=...).
     """
-    tokens = re.findall(r"[a-z0-9]+", text.lower())
-    if not tokens:
+    counted = tokens(text)
+    if not counted:
         return [], []
-    counts = Counter(tokens)
+    counts = Counter(counted)
     merged: dict[int, float] = {}
     for token, count in counts.items():
         idx = _stable_hash(token)
