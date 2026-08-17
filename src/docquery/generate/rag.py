@@ -7,6 +7,7 @@ from qdrant_client import QdrantClient
 from docquery.api.guard import check_context
 from docquery.config import Settings, get_settings
 from docquery.generate.decompose import decompose
+from docquery.retrieve.affinity import documents_in, named_sources
 from docquery.retrieve.expand import expand_contexts
 from docquery.retrieve.hybrid import retrieve
 from docquery.retrieve.reranker import rerank
@@ -206,6 +207,7 @@ def _prepare(
     # rate every candidate poorly no matter how the retrieval was divided. That
     # is the dilution this exists to undo.
     parts = decompose(query, settings, openai_client)
+    qid = hashlib.sha256(query.encode()).hexdigest()[:8]
     per_part = []
     points: list = []
     for part in parts:
@@ -219,11 +221,22 @@ def _prepare(
             tags=tags,
         )
         points.extend(found)
-        per_part.append(rerank(part, found, settings))
+        # A part that names a document gets that document's passages first. The
+        # cross-encoder sees only the passage text, which for most chunks of a
+        # contract says nothing about which contract it is — so this is the only
+        # place the name in the question can still count. Per part, because each
+        # part may name a different document.
+        named = (
+            named_sources(part, documents_in(found))
+            if settings.query_document_affinity_enabled
+            else set()
+        )
+        if named:
+            logger.info("Query qid=%s prefers %d named document(s)", qid, len(named))
+        per_part.append(rerank(part, found, settings, prefer_sources=named))
 
     contexts = merge_by_intent(per_part, settings)
     contexts = expand_contexts(contexts, qdrant, settings, sectors=sectors)
-    qid = hashlib.sha256(query.encode()).hexdigest()[:8]
     if len(parts) > 1:
         logger.info("Query qid=%s split into %d parts", qid, len(parts))
     for ctx_source, reason in check_context(contexts):

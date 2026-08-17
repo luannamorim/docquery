@@ -12,6 +12,7 @@ RAGAS baseline must not start depending on a streaming path.
 from types import SimpleNamespace
 
 import pytest
+from qdrant_client.models import ScoredPoint
 
 from docquery.config import Settings
 from docquery.generate.rag import query_pipeline_stream
@@ -34,6 +35,11 @@ def _contexts():
             "folders": ["contracts"],
         }
     ]
+
+
+def _point():
+    ctx = _contexts()[0]
+    return ScoredPoint(id=0, version=0, score=0.5, payload=dict(ctx))
 
 
 def _chunks(*texts: str):
@@ -60,7 +66,9 @@ def piped(monkeypatch):
     from docquery.generate import rag
 
     monkeypatch.setattr(rag, "QdrantClient", lambda **kwargs: object())
-    monkeypatch.setattr(rag, "retrieve", lambda *a, **k: [object()])
+    # A real point, not a sentinel: the pipeline reads the payload to work out
+    # which document the question named before it reranks.
+    monkeypatch.setattr(rag, "retrieve", lambda *a, **k: [_point()])
     monkeypatch.setattr(rag, "rerank", lambda *a, **k: _contexts())
     monkeypatch.setattr(rag, "expand_contexts", lambda contexts, *a, **k: contexts)
 

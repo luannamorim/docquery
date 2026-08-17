@@ -205,6 +205,14 @@ class Settings(BaseSettings):
     # multiplies whatever lands here by three again.
     query_decompose_max_contexts: int = 8
 
+    # Preferring the document a question names. On by default, unlike the
+    # decomposition above: it costs no LLM call and no extra retrieval, only a
+    # set intersection over terms the index already holds. The switch exists so
+    # the eval can measure it against its own absence, and so a deployment whose
+    # file names are meaningless (scan_001.pdf) can turn off a signal that would
+    # only add noise.
+    query_document_affinity_enabled: bool = True
+
     @field_validator(
         "docling_artifacts_path", "gdrive_service_account_file", mode="before"
     )
