@@ -577,6 +577,13 @@ button {
   font-size: 0.78rem;
 }
 
+/* Deliberately as quiet as the section breadcrumb, including when it reads
+ * "data desconhecida": an unknown date is context, not a warning. */
+.source-date {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+}
+
 /* The full path, shown only with the passage it identifies. Selectable, since
  * the reason to want it is to paste it back as a source filter. */
 .source-full {

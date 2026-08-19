@@ -163,6 +163,21 @@ export function exitIcon(): SVGSVGElement {
   return svg;
 }
 
+/**
+ * When the document was last updated, said in the reader's locale.
+ *
+ * The API leaves the date empty when neither the library it came from nor the
+ * file itself records one, and that emptiness is shown rather than hidden: "we
+ * do not know when this changed" and "this changed today" are opposite answers,
+ * and the ingest date — the one thing always available — is neither.
+ */
+function updatedLabel(modifiedAt: string): string {
+  if (!modifiedAt) return "data desconhecida";
+  const when = new Date(modifiedAt);
+  if (Number.isNaN(when.getTime())) return "data desconhecida";
+  return `atualizado ${when.toLocaleDateString()}`;
+}
+
 function sourceCard(source: Source): HTMLElement {
   const card = el("button", "source");
   card.type = "button";
@@ -187,6 +202,11 @@ function sourceCard(source: Source): HTMLElement {
   if (source.section) {
     body.append(el("span", "source-section", ` · ${source.section}`));
   }
+  const updated = el("span", "source-date", ` · ${updatedLabel(source.modified_at)}`);
+  updated.title = source.modified_at
+    ? `atualizado em ${source.modified_at}`
+    : "nenhuma fonte registra quando este documento foi atualizado";
+  body.append(updated);
   const detail = el("span", "source-text");
   detail.append(el("span", "source-full", source.source));
   detail.append(document.createTextNode(source.text));

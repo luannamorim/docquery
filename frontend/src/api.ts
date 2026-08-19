@@ -14,6 +14,7 @@ export type Source = {
   text: string;
   section: string;
   folders: string[];
+  modified_at: string;
 };
 
 export type Turn = {
