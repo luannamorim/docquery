@@ -782,6 +782,11 @@ button {
   margin: 0;
 }
 
+.empty p {
+  margin: 0.6rem 0 0;
+  font-size: 0.95rem;
+}
+
 .error {
   max-width: var(--measure);
   margin: 1rem auto 0;

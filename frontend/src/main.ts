@@ -106,6 +106,7 @@ function signInScreen(problemText = ""): void {
   const turns = el("div", "turns");
   const intro = el("div", "empty");
   intro.append(el("h1", undefined, "Como posso ajudar?"));
+  intro.append(el("p", undefined, "Faça uma pergunta. Eu leio os documentos por você."));
   turns.append(intro);
   scroll.append(turns);
 
@@ -334,9 +335,10 @@ async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLEl
 function showEmpty(turns: HTMLElement) {
   const empty = el("div", "empty");
   empty.append(el("h1", undefined, "Como posso ajudar?"));
+  empty.append(el("p", undefined, "Faça uma pergunta. Eu leio os documentos por você."));
 
-  // Nothing else. The composer's placeholder already invites the question, and
-  // an empty screen that explains itself is a screen nobody reads twice.
+  // Nothing beyond the one line. An empty screen that explains itself is a
+  // screen nobody reads twice.
   turns.append(empty);
 }
 
