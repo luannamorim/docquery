@@ -146,6 +146,13 @@ class Settings(BaseSettings):
     # through DELETE /conversations/{id}, which is what the right to erasure
     # (LGPD art. 18) actually requires.
 
+    # Outdated-document reports ("está desatualizado"). Records only — no
+    # effect on retrieval, no warning during Q&A, no re-ingest trigger: the
+    # report exists so a person reviews the document at its source. Shares the
+    # MySQL behind history_dsn but not history_enabled — the two features
+    # toggle apart.
+    feedback_enabled: bool = False
+
     # Ingest task store
     task_ttl_seconds: int = 3600
     task_max_size: int = 1000
@@ -244,6 +251,27 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "history_enabled requires auth_enabled: a conversation is "
                     "owned by the token's oid, and without one it has no owner"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _check_feedback_config(self) -> "Settings":
+        """Fail fast when feedback is on but cannot work.
+
+        A report is deduplicated by the token's oid and read back by sector,
+        so without auth there is neither a reporter nor a compartment to scope
+        the list by.
+        """
+        if self.feedback_enabled:
+            if not self.history_dsn:
+                raise ValueError(
+                    "feedback_enabled requires history_dsn: reports share the "
+                    "MySQL that conversation history uses"
+                )
+            if not self.auth_enabled:
+                raise ValueError(
+                    "feedback_enabled requires auth_enabled: a report is "
+                    "deduplicated by the token's oid and listed by sector"
                 )
         return self
 

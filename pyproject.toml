@@ -71,7 +71,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "docling: end-to-end Docling conversion; needs the models, minutes to run",
-    "mysql: conversation store against a real MySQL; needs a server, opt-in",
+    "mysql: MySQL-backed stores against a real server; opt-in",
 ]
 
 [[tool.uv.index]]
