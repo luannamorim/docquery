@@ -6,7 +6,13 @@
  * static mount to fall back to index.html for paths it does not have.
  */
 import "./styles.css";
-import { ask, conversation, deleteConversation, type Source } from "./api";
+import {
+  ask,
+  conversation,
+  deleteConversation,
+  reportDocument,
+  type Source,
+} from "./api";
 import { account, accessToken, initAuth, signIn, signOut } from "./auth";
 import {
   answerBody,
@@ -31,12 +37,14 @@ type Config = {
   clientId: string;
   apiClientId: string;
   appName: string;
+  feedbackEnabled: boolean;
 };
 
 const root = document.getElementById("app")!;
 let currentConversation: string | null = null;
 let inFlight: AbortController | null = null;
 let appName = "docquery";
+let feedbackEnabled = false;
 let conversationFilter = "";
 let searchOpen = false;
 
@@ -55,6 +63,14 @@ function focusComposer(): void {
 
 function shortName(username: string): string {
   return username.split("@")[0] || username;
+}
+
+/** The flag-as-outdated handler, or undefined when the feature is off — the
+ *  cards render no affordance at all rather than a button that would 404. */
+function reportHandler() {
+  return feedbackEnabled
+    ? (source: string, comment: string) => reportDocument(source, comment)
+    : undefined;
 }
 
 /** Config comes from the server so the image is built once and configured per
@@ -352,7 +368,7 @@ async function open(
   turns.replaceChildren();
   try {
     const data = await conversation(id);
-    data.turns.forEach((turn) => turns.append(turnBlock(turn)));
+    data.turns.forEach((turn) => turns.append(turnBlock(turn, reportHandler())));
   } catch (error) {
     turns.append(el("div", "error", (error as Error).message));
   }
@@ -398,7 +414,7 @@ async function submit(
         // Appended after the answer slot: they still arrive before the first
         // token, filling the wait, but they sit under the text rather than
         // above it — and nothing jumps when the answer completes.
-        if (sources.length) answerSide.append(sourcesBlock(sources));
+        if (sources.length) answerSide.append(sourcesBlock(sources, reportHandler()));
       } else if (event.type === "token") {
         answer += event.text;
         // Re-rendered per token so the [n] markers stay bound as they arrive.
@@ -433,6 +449,7 @@ async function start() {
   try {
     const config = await loadConfig();
     appName = config.appName || appName;
+    feedbackEnabled = config.feedbackEnabled ?? false;
     document.title = appName;
     const signedIn = await initAuth(config);
     // Sign-in is always a deliberate click. Redirecting on load saved a click

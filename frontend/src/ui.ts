@@ -141,6 +141,25 @@ export function searchIcon(): SVGSVGElement {
   return svg;
 }
 
+/** A pennant: something here deserves a second look. */
+export function flagIcon(): SVGSVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("width", "13");
+  svg.setAttribute("height", "13");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", "M3.5 14V2.5M3.5 2.5h8.5l-2 3 2 3H3.5");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.4");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  svg.append(path);
+  return svg;
+}
+
 /** Inline SVG rather than a font icon: nothing here loads from a CDN. */
 export function exitIcon(): SVGSVGElement {
   const ns = "http://www.w3.org/2000/svg";
@@ -178,7 +197,69 @@ function updatedLabel(modifiedAt: string): string {
   return `atualizado ${when.toLocaleDateString()}`;
 }
 
-function sourceCard(source: Source): HTMLElement {
+/** What flagging a document does; undefined means the feature is off. */
+export type ReportHandler = (source: string, comment: string) => Promise<void>;
+
+/**
+ * The flag affordance beside a source card.
+ *
+ * A sibling of the card, never a child: the card is a <button>, and a button
+ * inside a button is invalid HTML that browsers will "fix" by reparenting.
+ * Being a sibling also means clicking the flag never toggles the card.
+ */
+function flagButton(source: Source, row: HTMLElement, onReport: ReportHandler): HTMLElement {
+  const flag = el("button", "source-flag");
+  flag.type = "button";
+  flag.title = "Sinalizar como desatualizado";
+  flag.setAttribute("aria-label", "Sinalizar como desatualizado");
+  flag.append(flagIcon());
+
+  let form: HTMLElement | null = null;
+  flag.addEventListener("click", () => {
+    if (form) {
+      form.remove();
+      form = null;
+      return;
+    }
+    form = el("div", "flag-form");
+    const comment = el("input");
+    comment.type = "text";
+    comment.maxLength = 500;
+    comment.placeholder = "comentário (opcional)";
+    comment.setAttribute("aria-label", "Comentário para quem revisar");
+    const confirm = el("button", "flag-confirm", "Sinalizar");
+    confirm.type = "button";
+    const cancel = el("button", "flag-cancel", "Cancelar");
+    cancel.type = "button";
+    form.append(comment, confirm, cancel);
+    row.append(form);
+    comment.focus();
+
+    cancel.addEventListener("click", () => {
+      form?.remove();
+      form = null;
+    });
+    confirm.addEventListener("click", () => {
+      confirm.disabled = true;
+      onReport(source.source, comment.value.trim())
+        .then(() => {
+          form?.remove();
+          form = null;
+          row.append(el("div", "flag-done", "Sinalizado para revisão."));
+          flag.dataset.flagged = "true";
+          flag.disabled = true;
+        })
+        .catch((error: Error) => {
+          confirm.disabled = false;
+          form?.querySelector(".error")?.remove();
+          form?.append(el("span", "error", error.message));
+        });
+    });
+  });
+  return flag;
+}
+
+function sourceCard(source: Source, onReport?: ReportHandler): HTMLElement {
   const card = el("button", "source");
   card.type = "button";
   card.setAttribute("aria-expanded", "false");
@@ -217,7 +298,16 @@ function sourceCard(source: Source): HTMLElement {
     const open = card.getAttribute("aria-expanded") === "true";
     card.setAttribute("aria-expanded", open ? "false" : "true");
   });
-  return card;
+
+  // Always wrapped, with or without the flag, so the list has one DOM shape
+  // for the border and hover rules to address.
+  const row = el("div", "source-row");
+  row.append(card);
+  if (onReport) {
+    row.classList.add("flaggable");
+    row.append(flagButton(source, row, onReport));
+  }
+  return row;
 }
 
 /**
@@ -241,9 +331,13 @@ export function markCitedSources(block: HTMLElement, answer: string): void {
   const uncited = cards.filter((card) => !cited.has(card.dataset.index ?? ""));
   if (!uncited.length) return;
 
+  // Hide the row, not the card: hiding only the inner button would leave its
+  // sibling flag floating beside an empty slot.
+  const shell = (card: HTMLElement) =>
+    card.closest<HTMLElement>(".source-row") ?? card;
   uncited.forEach((card) => {
     card.dataset.uncited = "true";
-    card.hidden = true;
+    shell(card).hidden = true;
   });
 
   const head = block.querySelector(".sources-head");
@@ -265,7 +359,7 @@ export function markCitedSources(block: HTMLElement, answer: string): void {
   let open = false;
   toggle.addEventListener("click", () => {
     open = !open;
-    uncited.forEach((card) => (card.hidden = !open));
+    uncited.forEach((card) => (shell(card).hidden = !open));
     toggle.textContent = open
       ? "ocultar trechos não citados"
       : `mostrar ${uncited.length} ${
@@ -275,7 +369,10 @@ export function markCitedSources(block: HTMLElement, answer: string): void {
   block.append(toggle);
 }
 
-export function sourcesBlock(sources: Source[]): HTMLElement {
+export function sourcesBlock(
+  sources: Source[],
+  onReport?: ReportHandler,
+): HTMLElement {
   const box = el("div", "sources");
   const count = sources.length;
   box.append(
@@ -285,7 +382,7 @@ export function sourcesBlock(sources: Source[]): HTMLElement {
       count === 1 ? "1 trecho encontrado" : `${count} trechos encontrados`,
     ),
   );
-  sources.forEach((source) => box.append(sourceCard(source)));
+  sources.forEach((source) => box.append(sourceCard(source, onReport)));
   return box;
 }
 
@@ -505,7 +602,7 @@ export function incompleteNote(): HTMLElement {
   return el("div", "meta incomplete", "Resposta interrompida.");
 }
 
-export function turnBlock(turn: Turn): HTMLElement {
+export function turnBlock(turn: Turn, onReport?: ReportHandler): HTMLElement {
   const block = el("article", "turn");
   const row = questionBubble(turn.question);
   block.append(row);
@@ -513,7 +610,7 @@ export function turnBlock(turn: Turn): HTMLElement {
 
   const answer = assistantColumn();
   answer.append(answerBody(turn.answer, answer));
-  if (turn.citations.length) answer.append(sourcesBlock(turn.citations));
+  if (turn.citations.length) answer.append(sourcesBlock(turn.citations, onReport));
   // History renders a finished turn, so the split is known from the start.
   markCitedSources(answer, turn.answer);
   if (!turn.complete) answer.append(incompleteNote());

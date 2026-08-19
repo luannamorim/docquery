@@ -54,6 +54,17 @@ export async function conversation(id: string): Promise<Conversation> {
   return response.json();
 }
 
+/** Flag a document as outdated. 200 and 201 are both success: a repeat flag
+ *  by the same person updates the report rather than duplicating it. */
+export async function reportDocument(source: string, comment: string): Promise<void> {
+  const response = await fetch("/feedback", {
+    method: "POST",
+    headers: await authorized(),
+    body: JSON.stringify({ source, comment }),
+  });
+  if (!response.ok) throw new Error(`não foi possível sinalizar (${response.status})`);
+}
+
 export async function deleteConversation(id: string): Promise<void> {
   const response = await fetch(`/conversations/${id}`, {
     method: "DELETE",

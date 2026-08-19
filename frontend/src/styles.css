@@ -528,6 +528,17 @@ button {
   border-bottom: 1px solid var(--rule);
 }
 
+/* Card and flag side by side. The card is a <button>, so the flag has to be
+ * its sibling in this wrapper — a button inside a button is invalid HTML. */
+.source-row {
+  position: relative;
+  border-top: 1px solid var(--rule);
+}
+
+.source-row:first-of-type {
+  border-top: 0;
+}
+
 .source {
   display: grid;
   grid-template-columns: 2rem 3px 1fr;
@@ -535,19 +546,90 @@ button {
   align-items: start;
   width: 100%;
   border: 0;
-  border-top: 1px solid var(--rule);
   background: none;
   text-align: left;
   padding: 0.6rem 0.75rem;
 }
 
-.source:first-of-type {
-  border-top: 0;
+.source-row.flaggable .source {
+  padding-right: 2.2rem;
 }
 
 .source:hover,
 .source[data-lit="true"] {
   background: var(--deep-soft);
+}
+
+.source-flag {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.5rem;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  padding: 0.25rem;
+  border-radius: 3px;
+  opacity: 0;
+}
+
+.source-row:hover .source-flag,
+.source-flag:focus-visible,
+.source-flag[data-flagged="true"] {
+  opacity: 1;
+}
+
+.source-flag:hover {
+  color: var(--deep);
+  background: var(--deep-soft);
+}
+
+.source-flag[data-flagged="true"] {
+  color: var(--warn);
+}
+
+.flag-form {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 0.75rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.flag-form input {
+  flex: 1;
+  min-width: 10rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.5rem;
+}
+
+.flag-form button {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.6rem;
+}
+
+.flag-form .flag-confirm {
+  color: var(--deep);
+  border-color: var(--deep);
+}
+
+.flag-form button:hover {
+  background: var(--deep-soft);
+}
+
+/* As quiet as the date line: the report was taken, the reading goes on. */
+.flag-done {
+  padding: 0 0.75rem 0.6rem;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
 }
 
 .source-index {
