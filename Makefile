@@ -1,4 +1,4 @@
-.PHONY: serve serve-prod ingest eval eval-v2 generate-dataset compare-chunkers compare-document-scope ablation-reranker security-suite test lint format
+.PHONY: serve serve-prod ingest ingest-docker eval eval-v2 generate-dataset compare-chunkers compare-document-scope ablation-reranker security-suite test lint format
 
 serve:
 	uv run fastapi dev
@@ -8,6 +8,11 @@ serve-prod:
 
 ingest:
 	uv run python -m docquery.ingest.pipeline $(filter-out $@,$(MAKECMDGOALS))
+
+# Same ingestion, but in an ephemeral container on the compose network —
+# reaches the compose qdrant (which `make ingest` cannot) and exits when done.
+ingest-docker:
+	docker compose run --rm ingest $(filter-out $@,$(MAKECMDGOALS))
 
 eval:
 	uv run python eval/run_eval.py

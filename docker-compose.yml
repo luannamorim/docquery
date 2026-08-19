@@ -33,6 +33,38 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Ingestion as an ephemeral container — the local mirror of running it as an
+  # on-demand task (ECS RunTask) in a cloud deploy. Under a profile so
+  # `docker compose up` never starts it; run it as
+  #
+  #   docker compose run --rm ingest docs/sample
+  #
+  # and it starts qdrant if needed, indexes, and exits. Keeping it out of the
+  # `app` process means a deploy/restart of the API cannot kill an ingestion
+  # halfway through the delete-then-insert window, and OCR/embedding CPU never
+  # competes with query traffic.
+  ingest:
+    build: .
+    profiles: ["ingest"]
+    entrypoint: ["python", "-m", "docquery.ingest.pipeline"]
+    env_file:
+      - .env
+    environment:
+      - QDRANT_HOST=qdrant
+      # Same rationale as in `app`: QDRANT_API_KEY comes from .env untouched,
+      # and Xet is disabled for proxies that block it.
+      - HF_HUB_DISABLE_XET=1
+    volumes:
+      - ./docs:/app/docs
+      - ./data:/app/data:ro
+      # Shared with `app`, so the embedding models download once for both.
+      - hf_cache:/home/appuser/.cache/huggingface
+      # - ./secrets/gdrive-sa.json:/app/secrets/gdrive-sa.json:ro
+    # Only qdrant: ingestion never touches conversation history.
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
   qdrant:
     image: qdrant/qdrant:latest
     # No 'ports' — Qdrant stays on the internal docker network only. Expose
