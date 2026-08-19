@@ -11,6 +11,11 @@ dependencies = [
     "openai",
     "langchain-text-splitters",
     "pypdf",
+    # Highlight geometry for emphasis extraction (ingest/emphasis.py): fill
+    # rects and /Highlight annotations with their colors and bboxes, which
+    # pypdf does not expose. Imported lazily; only touched when
+    # EMPHASIS_EXTRACTION_ENABLED is on.
+    "pdfplumber",
     # OOXML core properties are parsed from documents the operator does not
     # control (ingest/modified.py). Arrives with docling; declared because a
     # transitive dependency is not a guarantee.

@@ -1,0 +1,84 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 2 /Kids [3 0 R 5 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 559 >>
+stream
+1 1 0 rg
+69 677 283.5 19 re
+f
+0.3 0.9 0.3 rg
+69 617 234.0 17 re
+f
+1 1 0 rg
+69 587 270.0 17 re
+f
+1 1 0 rg
+500 400 6 4 re
+f
+BT /F1 12 Tf 72 720 Td 18 TL
+(Manual de atendimento ao cliente.) Tj
+ET
+BT /F2 14 Tf 72 680 Td 20 TL
+(PRAZO DE QUITACAO DO BOLETO) Tj
+ET
+BT /F1 12 Tf 72 650 Td 18 TL
+(O procedimento abaixo descreve a rotina de cobranca.) Tj
+ET
+BT /F1 12 Tf 72 620 Td 18 TL
+(enviar o boleto ao cliente) Tj
+ET
+BT /F1 12 Tf 72 590 Td 18 TL
+(Cpf do titular: 529.982.247-25) Tj
+ET
+BT /F1 12 Tf 72 560 Td 18 TL
+(Encerrar o atendimento apos a confirmacao.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R /F2 8 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 181 >>
+stream
+1 1 0 rg
+69 697 304.5 19 re
+f
+BT /F2 14 Tf 72 700 Td 20 TL
+(REEMISSAO EM ATE 2 DIAS UTEIS) Tj
+ET
+BT /F1 12 Tf 72 660 Td 18 TL
+(A reemissao segue a fila padrao de atendimento.) Tj
+ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+8 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000257 00000 n 
+0000000867 00000 n 
+0000001003 00000 n 
+0000001235 00000 n 
+0000001305 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+1380
+%%EOF

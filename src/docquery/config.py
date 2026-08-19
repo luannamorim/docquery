@@ -228,6 +228,14 @@ class Settings(BaseSettings):
     # of scope. Enabling it changes chunk text and therefore point IDs: reingest.
     pii_redaction_enabled: bool = False
 
+    # Emphasis extraction from PDF highlights. Opt-in like docling_enabled.
+    # Yellow/green fills (Word exports) and /Highlight annotations become
+    # extra lexical terms and chunk metadata; the stored passage stays exactly
+    # what the document says. On the legacy PDF path a full-line CAPS yellow
+    # highlight is promoted to a heading before chunking; on the Docling path
+    # headings come from layout analysis instead.
+    emphasis_extraction_enabled: bool = False
+
     @field_validator(
         "docling_artifacts_path", "gdrive_service_account_file", mode="before"
     )

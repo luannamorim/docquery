@@ -43,6 +43,19 @@ def _rule_ops(rules: list[tuple[int, int, int, int]]) -> str:
     return "\n".join(ops)
 
 
+_YELLOW = "1 1 0"
+_GREEN = "0.3 0.9 0.3"
+
+
+def _fill_rect_ops(rects: list[tuple[float, float, float, float, str]]) -> str:
+    """Filled rectangles (x, y, w, h, color), emitted BEFORE the text ops so
+    the fill sits behind the glyphs — exactly how Word exports highlighting."""
+    ops = []
+    for x, y, w, h, color in rects:
+        ops.append(f"{color} rg\n{x} {y} {w} {h} re\nf")
+    return "\n".join(ops)
+
+
 def _build_pdf(pages: list[str]) -> bytes:
     """Assemble page content streams into a minimal two-font PDF."""
     n = len(pages)
@@ -235,6 +248,63 @@ def make_docx() -> None:
     doc.save(FIXTURES / "sample.docx")
 
 
+def make_highlighted_pdf() -> None:
+    """Case G — Word-style text highlights: filled rects behind native text.
+
+    Not annotations: the reference corpus (.docx -> PDF exports) encodes its
+    yellow/green marks as content-stream fills, which is exactly what the
+    emphasis extractor's rect path reads. Page 1 carries a CAPS yellow heading,
+    a green state mark, a yellow-marked CPF (redaction interplay) and a 6x4pt
+    decorative sliver the size filter must discard; page 2 exists so the
+    page-mapping of spans is testable.
+    """
+    size = 12
+
+    def line_rect(
+        x: float, y: float, text: str, color: str, size: int = 12
+    ) -> tuple[float, float, float, float, str]:
+        # Generous width: the crop only ever sees this line, so covering a bit
+        # of trailing whitespace changes nothing.
+        return (x - 3, y - 3, len(text) * 0.75 * size, size + 5, color)
+
+    heading = "PRAZO DE QUITACAO DO BOLETO"
+    green_line = "enviar o boleto ao cliente"
+    cpf_line = "Cpf do titular: 529.982.247-25"
+    page1 = "\n".join(
+        [
+            _fill_rect_ops(
+                [
+                    line_rect(72, 680, heading, _YELLOW, size=14),
+                    line_rect(72, 620, green_line, _GREEN),
+                    line_rect(72, 590, cpf_line, _YELLOW),
+                    (500, 400, 6, 4, _YELLOW),  # decorative sliver: filtered
+                ]
+            ),
+            _text_ops(["Manual de atendimento ao cliente."], y=720, size=size),
+            _text_ops([heading], y=680, size=14, bold=True),
+            _text_ops(
+                ["O procedimento abaixo descreve a rotina de cobranca."],
+                y=650,
+                size=size,
+            ),
+            _text_ops([green_line], y=620, size=size),
+            _text_ops([cpf_line], y=590, size=size),
+            _text_ops(["Encerrar o atendimento apos a confirmacao."], y=560, size=size),
+        ]
+    )
+    reemissao = "REEMISSAO EM ATE 2 DIAS UTEIS"
+    page2 = "\n".join(
+        [
+            _fill_rect_ops([line_rect(72, 700, reemissao, _YELLOW, size=14)]),
+            _text_ops([reemissao], y=700, size=14, bold=True),
+            _text_ops(
+                ["A reemissao segue a fila padrao de atendimento."], y=660, size=size
+            ),
+        ]
+    )
+    (FIXTURES / "highlighted.pdf").write_bytes(_build_pdf([page1, page2]))
+
+
 def main() -> None:
     make_native_text_pdf()
     make_multipage_pdf()
@@ -242,6 +312,7 @@ def main() -> None:
     make_scanned_pdf()
     make_image_png()
     make_docx()
+    make_highlighted_pdf()
     for path in sorted(FIXTURES.iterdir()):
         if path.name != "generate.py":
             print(f"{path.name:24} {path.stat().st_size:>8} bytes")

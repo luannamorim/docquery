@@ -138,6 +138,18 @@ Every chunk stays traceable to its origin. Three payload fields are new and **ad
 
 To backfill `page_number` on documents indexed earlier, simply re-ingest them — the pipeline deletes and rewrites chunks per source, so it is safe to repeat.
 
+### Highlights (emphasis)
+
+`EMPHASIS_EXTRACTION_ENABLED=true` reads what the author highlighted in a PDF and turns it into a retrieval signal — never into text. The operational manuals mark section titles and critical procedure values with **yellow** and states ("solucionado") with **green**; Word exports those as filled rectangles drawn behind the glyphs in the content stream, and Acrobat/Google Docs produce `/Highlight` annotations. `src/docquery/ingest/emphasis.py` (pdfplumber, imported lazily) reads both.
+
+What the spans become:
+
+- **Chunk metadata** — payload field `emphasis: list[str]`, mapped to chunks **by page** on the Docling path (`page_number`) and to every chunk of the document on the legacy path, where `load_pdf` joins pages before chunking and provenance is gone (degraded but honest; bbox-level refinement is a TODO).
+- **Lexical terms** — injected into the sparse index through the same mechanism as `document_terms`. The stored passage, the citation and what the model sees stay exactly what the document says.
+- **Headings (legacy path only)** — a full-line CAPS yellow highlight (or one whose glyphs run ≥ 1.3× the page average) is promoted to a `## ` heading before chunking; the manuals title their sections with highlights, not with `Passo N:` patterns. On the Docling path this is inert by design — `dl_doc` drives chunking and headings come from layout analysis.
+
+PII redaction (when enabled) runs later, at the upsert seam, and covers the `emphasis` list too — a highlight over a CPF reaches the payload as `[CPF]`. Red rectangles *inside screenshots* and arrows/numbering are a separate problem (raster, needs OCR/vision) and are not handled here.
+
 ### Configuration
 
 | Variable | Default | Meaning |
@@ -150,6 +162,7 @@ To backfill `page_number` on documents indexed earlier, simply re-ingest them �
 | `DOCLING_MAX_PAGES` | `200` | Page cap per document |
 | `DOCLING_TIMEOUT_SECONDS` | `300` | Per-document conversion timeout |
 | `DOCLING_ARTIFACTS_PATH` | unset | Local model weights; set to `/opt/docling-models` in the image |
+| `EMPHASIS_EXTRACTION_ENABLED` | `false` | Yellow/green PDF highlights → lexical terms + `emphasis` metadata (both parsing paths) |
 
 ### CPU, GPU and models
 
