@@ -483,3 +483,33 @@ def test_the_stream_asks_the_proxy_not_to_buffer(streaming_client, private_key):
     # no-store comes from SecurityHeadersMiddleware and is stricter than the
     # no-cache an SSE endpoint would ask for, so the endpoint does not set one.
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_a_question_with_a_cpf_is_stored_redacted(signing_key, private_key):
+    """Redaction happens before any persistence — history included.
+
+    The question and the answer are the two strings that reach MySQL without
+    passing through the ingest pipeline, so they carry their own seam.
+    """
+    from docquery.api.routes import get_store
+
+    store = InMemoryStore()
+    app.dependency_overrides[get_settings] = lambda: _settings(
+        pii_redaction_enabled=True
+    )
+    app.dependency_overrides[get_store] = lambda: store
+    try:
+        with patch("docquery.api.routes.query_pipeline", side_effect=_pipeline_result):
+            api = TestClient(app)
+            response = api.post(
+                "/query",
+                json={"query": "o CPF 529.982.247-25 tem contrato ativo?"},
+                headers={"Authorization": f"Bearer {token_for(private_key, ANA)}"},
+            )
+
+        assert response.status_code == 200
+        turn = store.turns(response.json()["conversation_id"], owner=ANA)[0]
+        assert turn["question"] == "o CPF [CPF] tem contrato ativo?"
+        assert "529.982.247-25" not in turn["answer"]
+    finally:
+        app.dependency_overrides.clear()

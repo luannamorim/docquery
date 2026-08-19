@@ -273,6 +273,20 @@ def frontend_config(settings: SettingsDep) -> FrontendConfig:
     )
 
 
+def _redacted(text: str, settings: Settings) -> str:
+    """PII redaction before history persistence, mirroring the ingest seam.
+
+    Citations are payload-derived and already redacted at ingest; the question
+    and the answer are the two strings that reach MySQL without passing
+    through the pipeline, so they get the same treatment here.
+    """
+    if not settings.pii_redaction_enabled:
+        return text
+    from docquery.ingest.redact import redact_text
+
+    return redact_text(text)
+
+
 def _owned_turns(conversation_id: str, store, owner: str | None) -> list:
     """The caller's turns, or 404.
 
@@ -380,9 +394,11 @@ def query(
         store.append(
             conversation_id,
             owner=owner,
-            question=request.query,
-            answer=result["answer"],
-            rewritten_question=retrieval_query if rewritten else "",
+            question=_redacted(request.query, settings),
+            answer=_redacted(result["answer"], settings),
+            rewritten_question=_redacted(retrieval_query, settings)
+            if rewritten
+            else "",
             citations=result["sources"],
             sectors=sectors or [],
             model=result["model"],
@@ -495,9 +511,11 @@ def query_stream(
                 store.append(
                     conversation_id,
                     owner=owner,
-                    question=request.query,
-                    answer=answer,
-                    rewritten_question=retrieval_query if rewritten else "",
+                    question=_redacted(request.query, settings),
+                    answer=_redacted(answer, settings),
+                    rewritten_question=_redacted(retrieval_query, settings)
+                    if rewritten
+                    else "",
                     citations=sources,
                     sectors=sectors or [],
                     model=final.get("model", settings.llm_model),

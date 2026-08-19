@@ -28,6 +28,7 @@ from docquery.ingest.loader import (
     load_directory,
     load_document,
 )
+from docquery.ingest.redact import redact_chunks
 from docquery.ingest.sources import SourceError, fetch, source_scheme, validate_uri
 from docquery.ingest.sparse import document_terms, sparse_vector
 from docquery.retrieve.embedder import embed_texts
@@ -76,6 +77,11 @@ def ingest_chunks(
         logger.warning("Dropped %d empty chunk(s) before upsert", dropped)
     if not chunks:
         return
+
+    # PII becomes typed placeholders here, at the only door to Qdrant, so no
+    # caller can upsert an unredacted chunk. Before embedding, sparse indexing,
+    # point-ID hashing and payload assembly — all four see the same text.
+    chunks = redact_chunks(chunks, settings)
 
     texts = [c.text for c in chunks]
     dense_vectors = embed_texts(texts, settings=settings).tolist()

@@ -220,6 +220,14 @@ class Settings(BaseSettings):
     # only add noise.
     query_document_affinity_enabled: bool = True
 
+    # PII redaction at ingest and persistence. Opt-in like docling_enabled. CPF,
+    # CNPJ (numeric and alphanumeric), email and BR phone become typed
+    # placeholders ([CPF], ...) before anything is embedded, indexed, stored or
+    # logged. Replacement, never removal — a passage with a silent hole would
+    # still read as the document's own words. Proper names need NER and are out
+    # of scope. Enabling it changes chunk text and therefore point IDs: reingest.
+    pii_redaction_enabled: bool = False
+
     @field_validator(
         "docling_artifacts_path", "gdrive_service_account_file", mode="before"
     )

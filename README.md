@@ -582,6 +582,23 @@ python eval/security/injection_suite.py
 
 The suite covers **47 attacks** across OWASP LLM Top 10 categories — 36 expected-block (direct injection, role injection, prompt leak, jailbreak, structural, PT-BR + NFKC evasions) and 11 benign/borderline — and targets **≥ 95% block rate** (currently 100%).
 
+## Documentos com PII
+
+Operational manuals exported from real systems carry real customer data — CPF, CNPJ, e-mail, phone — in native text and inside screenshots that OCR recovers. Whatever reaches the Qdrant payload comes back out in citations to every user of the sector, and whatever reaches the conversation store persists in MySQL. That is personal data under the LGPD, and this corpus is not the place to hold it.
+
+`PII_REDACTION_ENABLED=true` rewrites detected PII into stable typed placeholders **before anything persists** — before embedding, before the sparse index, before the Qdrant payload, and before a question or answer is written to conversation history. Replacement, never removal: a passage with a silent hole would still read as the document's own words, so a citation stays legible (`o cliente [CPF] solicitou...`).
+
+| Detected | Placeholder | Validation |
+|----------|-------------|------------|
+| CPF (formatted or bare 11 digits) | `[CPF]` | check digits; repeated-digit CPFs rejected |
+| CNPJ (numeric, and the alphanumeric format in punctuated form) | `[CNPJ]` | check digits over the Receita's `ord(c) - 48` rule |
+| E-mail | `[EMAIL]` | — |
+| Phone (BR: `+55`, `(DDD)`, hyphenated) | `[TELEFONE]` | ANATEL shape rules; year ranges (`2020-2024`) and dates never match |
+
+Every detector validates its match because the corpus is full of near-misses: a 9–12 digit contract number is **not** a CPF, and redacting it would be a silent retrieval loss. False negatives beat false positives — a bare unpunctuated 10–11 digit run is deliberately not treated as a phone.
+
+The flag is **off by default** so the quickstart and the eval baseline stay reproducible. **Any corpus with customer data requires it on before production.** Enabling it changes chunk text and therefore point IDs, so re-ingest the corpus after flipping it. Proper names (`João da Silva`) need NER, which regex cannot do — a documented TODO, out of scope until measured separately.
+
 ## API Reference
 
 When `AUTH_ENABLED=true`, every endpoint below except `GET /health` requires `Authorization: Bearer <token>` — see [Authentication](#authentication--azure-entra-id).
