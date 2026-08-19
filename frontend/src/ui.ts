@@ -14,7 +14,7 @@
  *    new folder gets a colour on its first appearance, and the colour tells you
  *    which compartment a passage came from.
  */
-import type { Source, Turn } from "./api";
+import type { ReportedDocument, Source, Turn } from "./api";
 
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -600,6 +600,79 @@ export function assistantColumn(): HTMLElement {
 
 export function incompleteNote(): HTMLElement {
   return el("div", "meta incomplete", "Resposta interrompida.");
+}
+
+/**
+ * The documents people flagged as outdated, for whoever will review them.
+ *
+ * Scoped by the API to the reader's sectors, so what this lists is what the
+ * reader is allowed to know was flagged. Comments are people's own words —
+ * rendered as text nodes like everything else here, never as markup.
+ */
+export function reviewPanel(
+  docs: ReportedDocument[],
+  onResolve: (source: string) => Promise<void>,
+): HTMLElement {
+  const panel = el("div", "review");
+  panel.append(el("h1", "review-title", "Documentos sinalizados"));
+
+  if (!docs.length) {
+    panel.append(el("p", "review-empty", "Nenhum documento sinalizado."));
+    return panel;
+  }
+
+  for (const doc of docs) {
+    const item = el("div", "review-item");
+
+    const head = el("div", "review-head");
+    const tab = el("span", "review-sector");
+    tab.style.setProperty("--sector", sectorColor(doc.sector));
+    tab.title = `setor: ${doc.sector}`;
+    const name = el("span", "review-name", doc.source.split("/").pop() || doc.source);
+    name.title = doc.source;
+    head.append(tab, name);
+
+    const resolve = el("button", "review-resolve", "Resolver");
+    resolve.type = "button";
+    resolve.title = "O documento foi revisado — apaga as sinalizações";
+    resolve.addEventListener("click", () => {
+      resolve.disabled = true;
+      onResolve(doc.source)
+        .then(() => item.remove())
+        .catch((error: Error) => {
+          resolve.disabled = false;
+          item.querySelector(".error")?.remove();
+          item.append(el("div", "error", error.message));
+        });
+    });
+    head.append(resolve);
+    item.append(head);
+
+    const when = new Date(doc.last_reported_at);
+    const last = Number.isNaN(when.getTime()) ? "" : when.toLocaleDateString();
+    item.append(
+      el(
+        "div",
+        "review-meta",
+        `${doc.report_count} ${
+          doc.report_count === 1 ? "sinalização" : "sinalizações"
+        }${last ? ` · última em ${last}` : ""}`,
+      ),
+    );
+    // The identity, selectable like .source-full: the reviewer's next step is
+    // pasting it into a re-ingest or a scoped query.
+    item.append(el("div", "review-source", doc.source));
+
+    if (doc.comments.length) {
+      const list = el("ul", "review-comments");
+      for (const comment of doc.comments) {
+        list.append(el("li", undefined, comment));
+      }
+      item.append(list);
+    }
+    panel.append(item);
+  }
+  return panel;
 }
 
 export function turnBlock(turn: Turn, onReport?: ReportHandler): HTMLElement {

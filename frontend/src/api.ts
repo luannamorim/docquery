@@ -54,6 +54,35 @@ export async function conversation(id: string): Promise<Conversation> {
   return response.json();
 }
 
+export type ReportedDocument = {
+  source: string;
+  sector: string;
+  report_count: number;
+  last_reported_at: string;
+  comments: string[];
+};
+
+/** The reported documents in the caller's sectors, newest activity first. */
+export async function reportedDocuments(): Promise<ReportedDocument[]> {
+  const response = await fetch("/feedback", { headers: await authorized() });
+  if (!response.ok) {
+    throw new Error(`sinalizações indisponíveis (${response.status})`);
+  }
+  const { documents } = await response.json();
+  return documents;
+}
+
+/** POST with a body, not DELETE with a query string: a source is an arbitrary
+ *  URI, and a query string would put it in access and proxy logs. */
+export async function resolveReport(source: string): Promise<void> {
+  const response = await fetch("/feedback/resolve", {
+    method: "POST",
+    headers: await authorized(),
+    body: JSON.stringify({ source }),
+  });
+  if (!response.ok) throw new Error(`não foi possível resolver (${response.status})`);
+}
+
 /** Flag a document as outdated. 200 and 201 are both success: a repeat flag
  *  by the same person updates the report rather than duplicating it. */
 export async function reportDocument(source: string, comment: string): Promise<void> {

@@ -11,6 +11,8 @@ import {
   conversation,
   deleteConversation,
   reportDocument,
+  reportedDocuments,
+  resolveReport,
   type Source,
 } from "./api";
 import { account, accessToken, initAuth, signIn, signOut } from "./auth";
@@ -30,6 +32,8 @@ import {
   sourcesBlock,
   userIcon,
   turnBlock,
+  flagIcon,
+  reviewPanel,
 } from "./ui";
 
 type Config = {
@@ -321,6 +325,13 @@ async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLEl
     rail.append(el("div", "rail-heading", "Conversas indisponíveis"));
   }
 
+  if (feedbackEnabled) {
+    const review = el("button", "rail-review");
+    review.append(flagIcon(), el("span", undefined, "Documentos sinalizados"));
+    review.addEventListener("click", () => void showReview(turns, scroll));
+    rail.append(review);
+  }
+
   const username = account()?.username ?? "";
   const foot = el("div", "rail-foot");
 
@@ -346,6 +357,21 @@ async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLEl
 
   foot.append(disc, who, out);
   rail.append(foot);
+}
+
+/** The review list takes the thread's place — this app deliberately has no
+ *  router, so "another screen" is the turns container showing something else,
+ *  the same mechanics open() uses. Asking a question leaves it again. */
+async function showReview(turns: HTMLElement, scroll: HTMLElement) {
+  currentConversation = null;
+  turns.replaceChildren();
+  try {
+    const docs = await reportedDocuments();
+    turns.append(reviewPanel(docs, resolveReport));
+  } catch (error) {
+    turns.append(el("div", "error", (error as Error).message));
+  }
+  scroll.scrollTop = 0;
 }
 
 function showEmpty(turns: HTMLElement) {
@@ -385,6 +411,7 @@ async function submit(
   send: HTMLButtonElement,
 ) {
   turns.querySelector(".empty")?.remove();
+  turns.querySelector(".review")?.remove();
 
   const block = el("article", "turn");
   const questionRow = questionBubble(question);
