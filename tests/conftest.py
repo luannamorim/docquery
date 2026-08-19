@@ -45,3 +45,24 @@ def _restore_docquery_logger():
     logger.setLevel(level)
     logger.propagate = propagate
     logger.handlers = handlers
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_buckets():
+    """Empty the shared rate-limit bucket after every test.
+
+    The app object is a module-level singleton and its RateLimitMiddleware
+    keeps hits in memory, keyed by peer address — which under TestClient is
+    "testclient" for every request in the whole suite. One bucket for the
+    whole run means each test spends allowance the tests after it needed, and
+    the suite fails with 429s in whatever file happens to sort last.
+    """
+    yield
+    from docquery.api.app import app
+    from docquery.api.ratelimit import RateLimitMiddleware
+
+    layer = app.middleware_stack
+    while layer is not None:
+        if isinstance(layer, RateLimitMiddleware):
+            layer._hits.clear()
+        layer = getattr(layer, "app", None)
