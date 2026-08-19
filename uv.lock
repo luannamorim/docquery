@@ -825,6 +825,7 @@ name = "docquery"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "defusedxml" },
     { name = "docling" },
     { name = "fastapi", extra = ["standard"] },
     { name = "google-auth" },
@@ -864,6 +865,7 @@ security = [
 [package.metadata]
 requires-dist = [
     { name = "deepeval", marker = "extra == 'security'" },
+    { name = "defusedxml" },
     { name = "docling", specifier = "==2.120.1" },
     { name = "fastapi", extras = ["standard"] },
     { name = "google-auth" },
