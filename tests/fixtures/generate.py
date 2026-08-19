@@ -305,6 +305,26 @@ def make_highlighted_pdf() -> None:
     (FIXTURES / "highlighted.pdf").write_bytes(_build_pdf([page1, page2]))
 
 
+def make_screenshot_pdf() -> None:
+    """Case H — a screenshot with a red box around one line, burned into the
+    raster the way the operational manuals mark fields. The 10x6px speck must
+    fall under image_emphasis's size floor."""
+    from PIL import ImageDraw
+
+    img = _render_text_image(
+        [
+            "Ticket Atendimento",
+            "codigo 4711",
+            "Status: aberto",
+        ]
+    )
+    draw = ImageDraw.Draw(img)
+    # The second line sits at y=144 (60 + 84); box it with margin.
+    draw.rectangle((40, 130, 620, 230), outline=(255, 0, 0), width=4)
+    draw.rectangle((1000, 60, 1010, 66), outline=(255, 0, 0), width=2)
+    img.save(FIXTURES / "screenshot_redbox.pdf", "PDF", resolution=150.0)
+
+
 def main() -> None:
     make_native_text_pdf()
     make_multipage_pdf()
@@ -313,6 +333,7 @@ def main() -> None:
     make_image_png()
     make_docx()
     make_highlighted_pdf()
+    make_screenshot_pdf()
     for path in sorted(FIXTURES.iterdir()):
         if path.name != "generate.py":
             print(f"{path.name:24} {path.stat().st_size:>8} bytes")

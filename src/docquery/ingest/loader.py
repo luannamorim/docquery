@@ -39,6 +39,10 @@ class Document:
     # beside metadata rather than in it: MetaValue cannot hold the structure,
     # and the spans are attached to chunks (and only then to payloads) later.
     emphasis: object | None = None
+    # OCR'd contents of red-boxed screenshot regions ({page: [str]}), set only
+    # when IMAGE_EMPHASIS_ENABLED and the file is a PDF. Same contract as
+    # emphasis above.
+    emphasis_screen: object | None = None
 
 
 def _parse_frontmatter(text: str) -> tuple[str, dict]:
@@ -194,6 +198,17 @@ def load_document(path: Path, settings: Settings | None = None) -> Document:
                 # Same contract as _promote_headings in load_pdf: promoted
                 # headings make the document eligible for markdown chunking.
                 doc.metadata["file_type"] = ".md"
+    if settings.image_emphasis_enabled and path.suffix.lower() == ".pdf":
+        from docquery.ingest.image_emphasis import extract_screen_emphasis
+
+        try:
+            doc.emphasis_screen = extract_screen_emphasis(path, settings) or None
+        except Exception:
+            logger.warning(
+                "Screen-emphasis extraction failed on %s; ingesting without it",
+                path,
+                exc_info=True,
+            )
     return doc
 
 

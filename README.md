@@ -148,7 +148,9 @@ What the spans become:
 - **Lexical terms** — injected into the sparse index through the same mechanism as `document_terms`. The stored passage, the citation and what the model sees stay exactly what the document says.
 - **Headings (legacy path only)** — a full-line CAPS yellow highlight (or one whose glyphs run ≥ 1.3× the page average) is promoted to a `## ` heading before chunking; the manuals title their sections with highlights, not with `Passo N:` patterns. On the Docling path this is inert by design — `dl_doc` drives chunking and headings come from layout analysis.
 
-PII redaction (when enabled) runs later, at the upsert seam, and covers the `emphasis` list too — a highlight over a CPF reaches the payload as `[CPF]`. Red rectangles *inside screenshots* and arrows/numbering are a separate problem (raster, needs OCR/vision) and are not handled here.
+PII redaction (when enabled) runs later, at the upsert seam, and covers the `emphasis` list too — a highlight over a CPF reaches the payload as `[CPF]`.
+
+**Red boxes inside screenshots** (`IMAGE_EMPHASIS_ENABLED=true`) are the raster half of the same idea: the manuals mark which field or button a step refers to by burning red rectangles into their screenshots, invisible to the vector layer. `src/docquery/ingest/image_emphasis.py` pulls each embedded image out with pypdf, masks red at both hue ends of HSV (red wraps around the hue axis), takes external contours over a size floor, and OCRs the inner crop (border excluded, 2× upscale) with **the same RapidOCR engine Docling uses** — same language policy (`DOCLING_OCR_LANGS`), same prefetched weights (`DOCLING_ARTIFACTS_PATH`). Results land in `emphasis_screen` metadata and the lexical index, never in cited text, and PII redaction covers them. Costs one OCR pass per red box per image. Arrows and 1/2/3 numbering point at their targets rather than enclosing them — only a VLM could resolve those, and they stay out of scope until measurement shows the gap matters.
 
 ### Configuration
 
@@ -163,6 +165,7 @@ PII redaction (when enabled) runs later, at the upsert seam, and covers the `emp
 | `DOCLING_TIMEOUT_SECONDS` | `300` | Per-document conversion timeout |
 | `DOCLING_ARTIFACTS_PATH` | unset | Local model weights; set to `/opt/docling-models` in the image |
 | `EMPHASIS_EXTRACTION_ENABLED` | `false` | Yellow/green PDF highlights → lexical terms + `emphasis` metadata (both parsing paths) |
+| `IMAGE_EMPHASIS_ENABLED` | `false` | Red boxes inside screenshots → OCR → lexical terms + `emphasis_screen` metadata |
 
 ### CPU, GPU and models
 

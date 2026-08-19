@@ -236,6 +236,14 @@ class Settings(BaseSettings):
     # headings come from layout analysis instead.
     emphasis_extraction_enabled: bool = False
 
+    # Red-box regions inside screenshots, OCR'd into the lexical index.
+    # Opt-in like emphasis_extraction_enabled. Costs one OCR pass per red box
+    # per embedded image; results are lexical terms and metadata only, never
+    # cited text. Uses the RapidOCR weights the Docker image already
+    # prefetches and the language policy from docling_ocr_langs, but does not
+    # require docling_enabled — image extraction is pypdf and OCR is direct.
+    image_emphasis_enabled: bool = False
+
     @field_validator(
         "docling_artifacts_path", "gdrive_service_account_file", mode="before"
     )

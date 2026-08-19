@@ -23,6 +23,7 @@ from docquery.config import Settings, get_settings
 from docquery.folders import folder_segments, sector_of
 from docquery.ingest.chunker import Chunk, chunk_document
 from docquery.ingest.emphasis import attach_emphasis
+from docquery.ingest.image_emphasis import attach_screen_emphasis
 from docquery.ingest.loader import (
     is_skippable_load_error,
     iter_ingestable_files,
@@ -155,6 +156,7 @@ def ingest_chunks(
                 # cited text: reranker._point_to_context deliberately does not
                 # read it (INV-1).
                 "emphasis": chunk.metadata.get("emphasis", []),
+                "emphasis_screen": chunk.metadata.get("emphasis_screen", []),
             },
         )
         for chunk, dense, (indices, values) in zip(
@@ -329,6 +331,8 @@ def _ingest_documents(
             # chunks carry the page_number the spans are keyed by, and the
             # legacy path falls back to document-level attachment.
             attach_emphasis(doc, doc_chunks)
+        if settings.image_emphasis_enabled:
+            attach_screen_emphasis(doc, doc_chunks)
         all_chunks.extend(doc_chunks)
 
     sources_to_ingest = {doc.metadata.get("source", "") for doc in docs} - {""}

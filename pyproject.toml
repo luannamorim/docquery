@@ -16,6 +16,13 @@ dependencies = [
     # pypdf does not expose. Imported lazily; only touched when
     # EMPHASIS_EXTRACTION_ENABLED is on.
     "pdfplumber",
+    # Red-box detection inside screenshots (ingest/image_emphasis.py). All
+    # three arrive with docling; declared because a transitive dependency is
+    # not a guarantee. opencv-python, never -headless — docling already drags
+    # opencv-python, and both wheels claim the cv2 namespace.
+    "opencv-python",
+    "pillow",
+    "rapidocr",
     # OOXML core properties are parsed from documents the operator does not
     # control (ingest/modified.py). Arrives with docling; declared because a
     # transitive dependency is not a guarantee.
