@@ -85,6 +85,14 @@ class Source(BaseModel):
         default_factory=list,
         description="Folder segments of the source, relative to the ingested root",
     )
+    modified_at: str = Field(
+        default="",
+        description=(
+            "When the document was last updated (UTC, RFC 3339), from the "
+            "library it lives in or the metadata inside the file. Empty when "
+            "neither records one — never the ingest or download time"
+        ),
+    )
 
 
 class QueryResponse(BaseModel):

@@ -580,3 +580,81 @@ def test_remote_fetch_failure_still_cleans_up(
     with pytest.raises(sources.SourceError):
         pipeline.ingest_source(SP_URI, settings=_sharepoint_settings())
     assert not holder["dest"].exists()
+
+
+# --- update dates from the library ----------------------------------------
+#
+# The date the library records is the only place an *edit* is registered: the
+# downloaded copy's mtime is the download time, so it is never consulted.
+
+
+def test_sharepoint_carries_the_libraries_modified_date(mock_http, tmp_path) -> None:
+    handler, _ = _sharepoint_handler(
+        {
+            "policies#1": {
+                "value": [
+                    {
+                        "id": "i1",
+                        "name": "a.md",
+                        "size": 3,
+                        "file": {},
+                        "lastModifiedDateTime": "2024-01-15T10:30:00Z",
+                    }
+                ]
+            }
+        },
+        contents={"i1": b"# a"},
+    )
+    mock_http(handler)
+    fetched = sources.fetch(SP_URI, tmp_path, _sharepoint_settings())
+    assert fetched[0].modified_at == "2024-01-15T10:30:00+00:00"
+
+
+def test_a_sharepoint_item_without_a_date_carries_none(mock_http, tmp_path) -> None:
+    handler, _ = _sharepoint_handler(
+        {
+            "policies#1": {
+                "value": [{"id": "i1", "name": "a.md", "size": 3, "file": {}}]
+            }
+        },
+        contents={"i1": b"# a"},
+    )
+    mock_http(handler)
+    fetched = sources.fetch(SP_URI, tmp_path, _sharepoint_settings())
+    assert fetched[0].modified_at == ""
+
+
+def test_gdrive_asks_for_the_modified_time_and_carries_it(mock_http, tmp_path) -> None:
+    """modifiedTime is outside Drive's default projection.
+
+    Unasked it simply is not in the response, so the listing has to request it
+    explicitly or every Drive document arrives without a date.
+    """
+    requested: list[str] = []
+    listing = _gdrive_handler(
+        {
+            "folder-abc1234567#1": {
+                "files": [
+                    {
+                        "id": "f1",
+                        "name": "a.md",
+                        "mimeType": "text/markdown",
+                        "size": 3,
+                        "modifiedTime": "2024-01-15T10:30:00.000Z",
+                    }
+                ]
+            }
+        },
+        contents={"f1": b"# a"},
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "fields" in request.url.params:
+            requested.append(request.url.params["fields"])
+        return listing(request)
+
+    mock_http(handler)
+    fetched = sources.fetch(GD_URI, tmp_path, _gdrive_settings(tmp_path))
+
+    assert "modifiedTime" in requested[0]
+    assert fetched[0].modified_at == "2024-01-15T10:30:00+00:00"

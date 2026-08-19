@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from docquery.config import Settings, get_settings
+from docquery.ingest.modified import embedded_modified_at
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +161,15 @@ def _supported_extensions(settings: Settings) -> set[str]:
 
 def load_document(path: Path, settings: Settings | None = None) -> Document:
     settings = settings or get_settings()
+    doc = _parse_document(path, settings)
+    # One stamping point for every parser, legacy or Docling. Absent — not "" —
+    # when the file records no date, so "unknown" never reads as a date.
+    if modified_at := embedded_modified_at(path):
+        doc.metadata["modified_at"] = modified_at
+    return doc
 
+
+def _parse_document(path: Path, settings: Settings) -> Document:
     if settings.docling_enabled:
         from docquery.ingest import docling_loader
 

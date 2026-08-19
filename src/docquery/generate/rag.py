@@ -281,6 +281,7 @@ def _sources_from(contexts: list[dict]) -> list[dict]:
             "text": ctx["text"],
             "section": ctx.get("section", ""),
             "folders": ctx.get("folders", []),
+            "modified_at": ctx.get("modified_at", ""),
         }
         for i, ctx in enumerate(contexts)
     ]

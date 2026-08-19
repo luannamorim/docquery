@@ -20,6 +20,7 @@ def _point_to_context(point: ScoredPoint) -> dict:
         "score": float(point.score),
         "section": payload.get("section", ""),
         "folders": payload.get("folders", []),
+        "modified_at": payload.get("modified_at", ""),
     }
 
 
@@ -68,17 +69,12 @@ def rerank(
         return_documents=False,
     )
 
+    # Same shape as the unreranked path, with the cross-encoder's score in
+    # place of the retrieval one — one builder so a new payload field cannot
+    # reach one path and miss the other.
     contexts = [
-        {
-            "text": payload.get("text", ""),
-            "source": payload.get("source", ""),
-            "chunk_index": payload.get("chunk_index", 0),
-            "score": float(r["score"]),
-            "section": payload.get("section", ""),
-            "folders": payload.get("folders", []),
-        }
+        {**_point_to_context(points[r["corpus_id"]]), "score": float(r["score"])}
         for r in ranked
-        for payload in [(points[r["corpus_id"]].payload or {})]
     ]
     # Before the preference: naming a document decides which of the passages
     # worth sending gets a slot, never whether a passage nobody should read gets

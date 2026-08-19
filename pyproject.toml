@@ -11,6 +11,10 @@ dependencies = [
     "openai",
     "langchain-text-splitters",
     "pypdf",
+    # OOXML core properties are parsed from documents the operator does not
+    # control (ingest/modified.py). Arrives with docling; declared because a
+    # transitive dependency is not a guarantee.
+    "defusedxml",
     "torch",
     # Pulled in transitively by docling. Declared here so the CPU-index routing
     # in [tool.uv.sources] applies to it, and pinned to the release that matches

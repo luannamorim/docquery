@@ -131,6 +131,10 @@ def ingest_chunks(
                 # Access compartment. "" means no role can reach the chunk.
                 "sector": chunk.metadata.get("sector", ""),
                 "entity": chunk.metadata.get("entity", ""),
+                # When the document was last updated, per the library it lives
+                # in or the metadata inside the file. "" means no source knew —
+                # never the ingest time, which is what mtime would have given.
+                "modified_at": chunk.metadata.get("modified_at", ""),
                 "tags": chunk.metadata.get("tags", []),
             },
         )
@@ -378,6 +382,11 @@ def ingest_source(source: str, settings: Settings | None = None) -> dict[str, in
                     continue
                 raise
             doc.metadata["source"] = item.source_uri
+            # The library recorded the edit; the file records whoever exported
+            # it. Only overwrite when the library actually knows, so a document
+            # the API has no date for keeps the one it carries.
+            if item.modified_at:
+                doc.metadata["modified_at"] = item.modified_at
             # Fetchers build source_uri as f"{base}/{relative}", so stripping the
             # base leaves exactly the path relative to the folder that was asked for.
             _place_document(doc, item.source_uri[len(base) + 1 :])

@@ -27,6 +27,7 @@ import httpx
 
 from docquery.config import Settings
 from docquery.ingest.loader import _supported_extensions
+from docquery.ingest.modified import to_utc_iso
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,10 @@ class FetchedFile:
 
     local_path: Path
     source_uri: str
+    # When the library says the document was last edited. This is the fact the
+    # local copy cannot carry: its mtime is the download time. Empty when the
+    # API returns none, never a stand-in.
+    modified_at: str = ""
 
 
 def _http_client(token: str) -> httpx.Client:
@@ -207,9 +212,9 @@ def _graph_children_url(drive_id: str, folder: str) -> str:
 
 def _list_sharepoint(
     client: httpx.Client, drive_id: str, folder: str, prefix: str
-) -> list[tuple[str, str, int]]:
-    """Recursively list files as (item_id, relative_path, size)."""
-    items: list[tuple[str, str, int]] = []
+) -> list[tuple[str, str, int, str]]:
+    """Recursively list files as (item_id, relative_path, size, modified_at)."""
+    items: list[tuple[str, str, int, str]] = []
     url = _graph_children_url(drive_id, folder)
     while url:
         page = _get_json(client, url, f"folder '{folder or '/'}'")
@@ -226,7 +231,14 @@ def _list_sharepoint(
                     )
                 )
             else:
-                items.append((entry["id"], relative, int(entry.get("size", 0))))
+                items.append(
+                    (
+                        entry["id"],
+                        relative,
+                        int(entry.get("size", 0)),
+                        to_utc_iso(entry.get("lastModifiedDateTime")),
+                    )
+                )
         url = page.get("@odata.nextLink")
     return items
 
@@ -249,7 +261,9 @@ def fetch_sharepoint(uri: str, dest_dir: Path, settings: Settings) -> list[Fetch
 
     with _http_client(_graph_token(settings)) as client:
         drive_id = _graph_drive_id(client, host, site, drive)
-        for item_id, relative, size in _list_sharepoint(client, drive_id, folder, ""):
+        for item_id, relative, size, modified_at in _list_sharepoint(
+            client, drive_id, folder, ""
+        ):
             if not _wanted(relative, settings):
                 logger.debug("Skipping unsupported file: %s", relative)
                 continue
@@ -261,7 +275,9 @@ def fetch_sharepoint(uri: str, dest_dir: Path, settings: Settings) -> list[Fetch
             local_path = _local_name(dest_dir, relative)
             url = f"{GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/content"
             if _download(client, url, local_path, max_bytes, relative):
-                fetched.append(FetchedFile(local_path, f"{base_uri}/{relative}"))
+                fetched.append(
+                    FetchedFile(local_path, f"{base_uri}/{relative}", modified_at)
+                )
 
     logger.info("Fetched %d file(s) from %s", len(fetched), uri)
     return fetched
@@ -301,14 +317,16 @@ def _gdrive_token(settings: Settings) -> str:
 
 def _list_gdrive(
     client: httpx.Client, folder_id: str, prefix: str
-) -> list[tuple[str, str, int]]:
-    """Recursively list files as (file_id, relative_path, size)."""
+) -> list[tuple[str, str, int, str]]:
+    """Recursively list files as (file_id, relative_path, size, modified_at)."""
     entries: list[dict] = []
     page_token = None
     while True:
         params = {
             "q": f"'{folder_id}' in parents and trashed=false",
-            "fields": "files(id,name,mimeType,size),nextPageToken",
+            # modifiedTime is not in Drive's default projection: without asking
+            # for it the response simply has no date at all.
+            "fields": "files(id,name,mimeType,size,modifiedTime),nextPageToken",
             "pageSize": "200",
         }
         if page_token:
@@ -321,7 +339,7 @@ def _list_gdrive(
         if not page_token:
             break
 
-    items: list[tuple[str, str, int]] = []
+    items: list[tuple[str, str, int, str]] = []
     seen: set[str] = set()
     # Sorted so that duplicate names are disambiguated the same way on every
     # run — otherwise a re-ingest would rename sources and orphan its own chunks.
@@ -343,7 +361,14 @@ def _list_gdrive(
             name = f"{stem}~{entry['id'][:8]}{suffix}"
         seen.add(name)
         relative = f"{prefix}/{name}" if prefix else name
-        items.append((entry["id"], relative, int(entry.get("size", 0))))
+        items.append(
+            (
+                entry["id"],
+                relative,
+                int(entry.get("size", 0)),
+                to_utc_iso(entry.get("modifiedTime")),
+            )
+        )
     return items
 
 
@@ -360,7 +385,7 @@ def fetch_gdrive(uri: str, dest_dir: Path, settings: Settings) -> list[FetchedFi
     fetched: list[FetchedFile] = []
 
     with _http_client(_gdrive_token(settings)) as client:
-        for file_id, relative, size in _list_gdrive(client, folder_id, ""):
+        for file_id, relative, size, modified_at in _list_gdrive(client, folder_id, ""):
             if not _wanted(relative, settings):
                 logger.debug("Skipping unsupported file: %s", relative)
                 continue
@@ -372,7 +397,9 @@ def fetch_gdrive(uri: str, dest_dir: Path, settings: Settings) -> list[FetchedFi
             local_path = _local_name(dest_dir, relative)
             url = f"{DRIVE_ROOT}/files/{file_id}"
             if _download(client, url, local_path, max_bytes, relative):
-                fetched.append(FetchedFile(local_path, f"{base_uri}/{relative}"))
+                fetched.append(
+                    FetchedFile(local_path, f"{base_uri}/{relative}", modified_at)
+                )
 
     logger.info("Fetched %d file(s) from %s", len(fetched), uri)
     return fetched
