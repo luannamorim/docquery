@@ -63,6 +63,15 @@ Source layout under `src/docquery/`: `config.py`, `ingest/` (loader, sources, ch
 - Retention is unbounded by design; `DELETE /conversations/{id}` exists regardless, because the right to erasure does not depend on the retention policy.
 - Store tests are opt-in against a real MySQL (`-m mysql`, `DOCQUERY_MYSQL_TEST_DSN`), mirroring the Docling integration split. The endpoint tests swap the store through `app.dependency_overrides`, so CI needs no database.
 
+### Document feedback conventions
+
+- **A report is a record for review, nothing more.** Flagging a document as outdated (`POST /feedback`) does not change retrieval, does not warn other askers and does not trigger a re-ingest — it exists so a person reviews the document at its source. Reports live in MySQL (`src/docquery/feedback/`), never in the Qdrant payload: re-ingest deletes a source's chunks, and a report must outlive the re-ingest it is asking for.
+- **The sector is snapshotted server-side, never taken from the client.** `sector_for_source` (`retrieve/lookup.py`) reads it from the index *with the caller's sectors in the Qdrant filter*, so a document outside the caller's compartments answers 404 — the same "does not exist / cannot be reached" ambiguity the endpoints and the `no_match` refusal preserve. A caller-supplied sector could file a report into a compartment its token does not grant.
+- **The review list is read by sector, not by owner.** Any member of the document's sector sees and resolves its reports — reviewing is a team act, unlike a conversation. The predicate is still a `WHERE` clause in the store, and the endpoints still answer **404, never 403**.
+- `feedback_enabled` requires `auth_enabled` (a report is deduplicated by the token's `oid`) and `history_dsn` — it shares history's MySQL but not `history_enabled`; the two features toggle apart. `get_owner` is history-gated and must not be reused: feedback has its own `get_reporter`.
+- **Resolve is POST with a body, not DELETE with a query parameter** (`POST /feedback/resolve`): a `source` is an arbitrary path or URI, and a query string lands in access and proxy logs — the same leak `/query/stream` avoids by never being GET.
+- In the SPA the flag button is a **sibling** of the source card inside `.source-row`, never a child: the card is a `<button>` and a button inside a button is invalid HTML. Anything hiding a card must hide the row (`markCitedSources`), or the flag floats next to an empty slot.
+
 ### Ingest conventions
 
 - **A document's `source` is its identity.** Deduplication and orphan pruning both match on it by prefix. Remote documents are indexed under their URI, never the temporary path they were downloaded to.
