@@ -16,6 +16,10 @@ from docquery.api.guard import check_input
 from docquery.api.schemas import (
     ConversationListResponse,
     ConversationResponse,
+    FeedbackListResponse,
+    FeedbackReportResponse,
+    FeedbackRequest,
+    FeedbackResolveRequest,
     FrontendConfig,
     HealthResponse,
     IngestJobResponse,
@@ -25,10 +29,12 @@ from docquery.api.schemas import (
     QueryResponse,
 )
 from docquery.config import Settings, get_settings
+from docquery.feedback.store import FeedbackStore
 from docquery.folders import normalize_segment
 from docquery.generate.contextualize import contextualize
 from docquery.generate.rag import query_pipeline, query_pipeline_stream
 from docquery.history.store import ConversationStore
+from docquery.retrieve.lookup import sector_for_source
 from docquery.ingest.pipeline import ingest_source
 from docquery.ingest.sources import (
     SourceError,
@@ -122,6 +128,48 @@ def get_owner(
 
 
 OwnerDep = Annotated[str | None, Depends(get_owner)]
+
+
+@lru_cache
+def _feedback_store_for(dsn: str) -> FeedbackStore:
+    """One store per DSN, schema applied once — see _store_for."""
+    store = FeedbackStore(dsn)
+    store.init_schema()
+    return store
+
+
+def get_feedback_store(settings: SettingsDep) -> FeedbackStore | None:
+    """The feedback store, or None when the feature is off.
+
+    A dependency for the same reason get_store is: tests swap it through
+    app.dependency_overrides. Feedback shares history's database but not its
+    switch — the two features toggle apart.
+    """
+    if not settings.feedback_enabled:
+        return None
+    return _feedback_store_for(settings.history_dsn)
+
+
+FeedbackStoreDep = Annotated["FeedbackStore | None", Depends(get_feedback_store)]
+
+
+def get_reporter(
+    settings: SettingsDep,
+    claims: Annotated[dict | None, Depends(require_auth)],
+) -> str | None:
+    """Who is flagging: the token's object id.
+
+    Deliberately not get_owner, which is gated on history_enabled and would
+    silently disable feedback whenever history is off. feedback_enabled
+    already requires auth_enabled, so None is the residual case of a token
+    with no oid at all.
+    """
+    if not settings.feedback_enabled:
+        return None
+    return (claims or {}).get("oid") or None
+
+
+ReporterDep = Annotated[str | None, Depends(get_reporter)]
 
 
 class _TaskStore:
@@ -221,6 +269,7 @@ def frontend_config(settings: SettingsDep) -> FrontendConfig:
         clientId=settings.frontend_client_id,
         apiClientId=settings.azure_client_id,
         appName=settings.app_name,
+        feedbackEnabled=settings.feedback_enabled,
     )
 
 
@@ -518,6 +567,74 @@ def delete_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
     if not store.delete(conversation_id, owner=owner):
         raise HTTPException(status_code=404, detail="Conversation not found")
+    return Response(status_code=204)
+
+
+@router.post("/feedback", tags=["feedback"], status_code=201)
+def report_document(
+    request: FeedbackRequest,
+    settings: SettingsDep,
+    sectors: SectorsDep,
+    feedback: FeedbackStoreDep,
+    reporter: ReporterDep,
+    response: Response,
+) -> FeedbackReportResponse:
+    """Flag a document as outdated. A record for review, nothing more: it does
+    not change retrieval, warn other askers or trigger a re-ingest.
+
+    404 for the feature being off, a token with no oid or no sectors, an
+    unknown source and a source outside the caller's sectors alike — flagging
+    must not confirm that a document exists. The sector is derived here from
+    the index, never taken from the client: a caller-supplied sector could
+    file a report into a compartment its token does not grant.
+
+    The comment is not LLM-bound, so check_input deliberately does not run on
+    it: the schema caps its length and the SPA renders it as text, never HTML.
+    """
+    if feedback is None or reporter is None or sectors == []:
+        raise HTTPException(status_code=404, detail="Document not found")
+    sector = sector_for_source(request.source, settings, sectors)
+    if sector is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    created = feedback.report(request.source, sector, reporter, request.comment)
+    if not created:
+        # A repeat flag by the same caller updated the existing report.
+        response.status_code = 200
+    return FeedbackReportResponse(
+        source=request.source, sector=sector, created=created
+    )
+
+
+@router.get("/feedback", tags=["feedback"])
+def list_reported_documents(
+    sectors: SectorsDep,
+    feedback: FeedbackStoreDep,
+) -> FeedbackListResponse:
+    """The reported documents in the caller's sectors, newest activity first.
+
+    Empty rather than 404 when the feature is off, mirroring GET
+    /conversations with history off. The store handles the sectors
+    three-state; None still means "do not filter" even though auth being
+    required makes it unreachable here today.
+    """
+    if feedback is None:
+        return FeedbackListResponse(documents=[])
+    return FeedbackListResponse(documents=feedback.list_reports(sectors))
+
+
+@router.post("/feedback/resolve", tags=["feedback"], status_code=204)
+def resolve_report(
+    request: FeedbackResolveRequest,
+    sectors: SectorsDep,
+    feedback: FeedbackStoreDep,
+) -> Response:
+    """Erase every report for a document — it was reviewed, or the flag was
+    wrong. Any member of the document's sector may resolve; the sector
+    predicate lives in the store's WHERE clause, so resolving from outside the
+    sector is indistinguishable from resolving a document nobody reported.
+    """
+    if feedback is None or not feedback.resolve(request.source, sectors):
+        raise HTTPException(status_code=404, detail="Document not found")
     return Response(status_code=204)
 
 

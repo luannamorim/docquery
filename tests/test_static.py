@@ -56,6 +56,7 @@ def test_config_is_reachable_without_a_token():
         "apiClientId": "22222222-2222-2222-2222-222222222222",
         "clientId": "33333333-3333-3333-3333-333333333333",
         "appName": "docquery",
+        "feedbackEnabled": False,
     }
 
 

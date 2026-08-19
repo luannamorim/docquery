@@ -19,6 +19,10 @@ class FrontendConfig(BaseModel):
     clientId: str
     apiClientId: str
     appName: str = "docquery"
+    # Whether the outdated-document flag is available. A boolean feature
+    # switch is public by the same argument as appName: it reveals nothing a
+    # caller could not learn by trying the endpoint.
+    feedbackEnabled: bool = False
 
 
 class QueryRequest(BaseModel):
@@ -154,6 +158,50 @@ class ConversationSummary(BaseModel):
 
 class ConversationListResponse(BaseModel):
     conversations: list[ConversationSummary]
+
+
+class FeedbackRequest(BaseModel):
+    source: str = Field(
+        min_length=1,
+        max_length=4096,
+        description=(
+            "The document to flag as outdated: its local path or remote URI, "
+            "copied from the 'source' of a citation"
+        ),
+    )
+    comment: str = Field(
+        default="",
+        max_length=500,
+        description="Optional note for whoever reviews the document",
+    )
+
+
+class FeedbackReportResponse(BaseModel):
+    source: str
+    sector: str
+    created: bool = Field(
+        description="False when this caller had already flagged the document — "
+        "the report was updated, not duplicated"
+    )
+
+
+class ReportedDocument(BaseModel):
+    source: str
+    sector: str
+    report_count: int
+    last_reported_at: datetime
+    comments: list[str] = Field(default_factory=list)
+
+
+class FeedbackListResponse(BaseModel):
+    documents: list[ReportedDocument]
+
+
+class FeedbackResolveRequest(BaseModel):
+    # POST with a body rather than DELETE with a query parameter: a source is
+    # an arbitrary path or URI, and a query string lands in access and proxy
+    # logs — the same leak /query/stream avoids by never being GET.
+    source: str = Field(min_length=1, max_length=4096)
 
 
 class IngestRequest(BaseModel):
