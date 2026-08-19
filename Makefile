@@ -1,4 +1,4 @@
-.PHONY: serve serve-prod ingest ingest-docker eval eval-v2 generate-dataset compare-chunkers compare-document-scope ablation-reranker security-suite test lint format
+.PHONY: serve serve-prod ingest ingest-docker eval eval-v2 generate-dataset compare-chunkers compare-document-scope ablation-reranker security-suite measure-ocr test lint format
 
 serve:
 	uv run fastapi dev
@@ -34,6 +34,9 @@ ablation-reranker:
 
 security-suite:
 	uv run python eval/security/injection_suite.py
+
+measure-ocr:
+	uv run python eval/scripts/measure_ocr_coverage.py $(PDF)
 
 test:
 	uv run pytest

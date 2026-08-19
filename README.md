@@ -100,6 +100,12 @@ RapidOCR uses **one** language per run, so `DOCLING_OCR_LANGS` only honours its 
 docling-tools models download rapidocr --rapidocr-backend-lang torch:latin -o /opt/docling-models
 ```
 
+**Validating OCR for a screenshot-heavy corpus.** A manual exported from Word can hold most of its content inside embedded screenshots: the reference manual has 21 pages, ~7.100 chars of native text and 48 images. With `DOCLING_ENABLED=false` such a document indexes silently *half* — the "no text extracted" warning never fires because the document is not empty, only incomplete. Before trusting OCR on a new corpus:
+
+1. `make measure-ocr PDF=<reference manual>` — converts the PDF twice through the production Docling configuration, varying only `do_ocr`, and prints per-page char deltas plus sample accented lines that exist **only** with OCR. Inspect those samples: PP-OCRv6 covering PT diacritics is a claim, and this is where it gets checked. If accent coverage is poor, weigh swapping the prefetched checkpoint (see above) — a separate decision. Results land in `eval/results/ocr_coverage/summary.json`.
+2. Set `DOCLING_ENABLED=true` in that corpus's environment (the project default stays off) and re-ingest.
+3. Acceptance: `POST /query` for strings that exist only inside screenshots (e.g. a field label or a button caption from a print) must return the manual as a citation.
+
 ### Tables
 
 `DOCLING_TABLE_STRUCTURE=true` (default) runs TableFormer to recover the real row/column grid, and chunks render tables as **markdown** rather than Docling's default triplet linearization, so a citation stays readable.
