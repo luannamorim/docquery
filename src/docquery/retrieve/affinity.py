@@ -21,13 +21,11 @@ about the caller's intent is how "prazo da CRK" stops being able to say
 Nothing is invented for this. It reuses `document_terms` and `tokens`, so what
 counts as a document's name is one definition, not two that can drift.
 
-Known limitation, inherited on purpose: `tokens` matches `[a-z0-9]+`, so an
-accented word breaks apart ("política" -> "pol", "tica") and cannot match the
-unaccented stem of a file name. A document named `politica_x.pdf` is therefore
-not named by a question that spells it "política". Sharing the flaw with the
-lexical index is the lesser evil — a tokenizer that only this module folded
-accents would match terms the index does not hold, which is a silent wrong
-answer rather than a visible miss.
+`tokens` folds accents (NFKD), and index and affinity share that one
+definition, so "política" names `politica_x.pdf`. The former fragmentation
+("política" -> "pol", "tica") was fixed at the shared tokenizer — the only
+place it could be fixed without this module matching terms the index does not
+hold, which would be a silent wrong answer rather than a visible miss.
 """
 
 import logging

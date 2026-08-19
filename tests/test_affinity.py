@@ -72,6 +72,19 @@ def test_short_tokens_are_ignored():
     assert named == set()
 
 
+def test_a_question_with_accents_names_an_unaccented_file():
+    """ "política de férias" must reach politica_ferias.pdf: the shared
+    tokenizer folds accents, so the question's terms are the file's terms."""
+    documents = {
+        "docs/rh/politica_ferias.pdf": ["rh"],
+        "docs/rh/beneficios.pdf": ["rh"],
+    }
+
+    named = named_sources("qual a política de férias", documents)
+
+    assert named == {"docs/rh/politica_ferias.pdf"}
+
+
 def test_a_year_in_the_question_selects_by_year():
     documents = {
         "data/contracts/crk_2025.pdf": ["contracts"],

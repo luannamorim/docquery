@@ -47,3 +47,28 @@ def test_sparse_vector_term_frequencies() -> None:
 def test_sparse_vector_numbers_included() -> None:
     indices, values = sparse_vector("version 3 release 3")
     assert len(indices) == 3  # "version", "3", "release"
+
+
+def test_accented_words_are_single_folded_tokens() -> None:
+    """Half the PT lexicon is accented; fragments would poison every query."""
+    from docquery.ingest.sparse import tokens
+
+    for word, folded in [
+        ("quitação", "quitacao"),
+        ("reemissão", "reemissao"),
+        ("cobrança", "cobranca"),
+        ("solicitação", "solicitacao"),
+        ("atualização", "atualizacao"),
+        ("desbloqueio", "desbloqueio"),
+    ]:
+        assert tokens(word) == [folded]
+
+
+def test_query_and_index_agree_on_accented_terms() -> None:
+    assert sparse_vector("quitação")[0] == sparse_vector("quitacao")[0]
+
+
+def test_ascii_tokenization_is_unchanged() -> None:
+    from docquery.ingest.sparse import tokens
+
+    assert tokens("Reissue the boleto 2x") == ["reissue", "the", "boleto", "2x"]
