@@ -245,6 +245,32 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def _check_embedding_dimension(self) -> "Settings":
+        """Fail fast when the dimension does not match a known model.
+
+        Qdrant accepts any vector of the declared collection size, so a
+        mismatch surfaces as silently broken search, not an error. Unknown
+        models pass — the table cannot know every model, and an unknown one
+        is the operator's responsibility.
+        """
+        known = {
+            "all-MiniLM-L6-v2": 384,
+            "sentence-transformers/all-MiniLM-L6-v2": 384,
+            "intfloat/multilingual-e5-small": 384,
+            "intfloat/multilingual-e5-base": 768,
+            "intfloat/multilingual-e5-large": 1024,
+            "BAAI/bge-m3": 1024,
+        }
+        expected = known.get(self.embedding_model)
+        if expected is not None and self.embedding_dimension != expected:
+            raise ValueError(
+                f"embedding_model {self.embedding_model!r} produces "
+                f"{expected}-dim vectors, not {self.embedding_dimension}; "
+                "recreate the collection after changing either"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _check_history_config(self) -> "Settings":
         """Fail fast when history is on but cannot work.
 

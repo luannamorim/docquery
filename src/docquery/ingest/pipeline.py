@@ -84,7 +84,7 @@ def ingest_chunks(
     chunks = redact_chunks(chunks, settings)
 
     texts = [c.text for c in chunks]
-    dense_vectors = embed_texts(texts, settings=settings).tolist()
+    dense_vectors = embed_texts(texts, settings=settings, role="passage").tolist()
 
     # The document's name and folders join the lexical index but not the text.
     # Without them, most chunks of a contract carry nothing saying which

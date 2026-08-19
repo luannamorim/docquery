@@ -78,10 +78,10 @@ def _chunk_semantic(doc: Document, settings: Settings) -> list[Chunk]:
         """Minimal adapter so embed_texts works as a LangChain Embeddings object."""
 
         def embed_documents(self, texts: list[str]) -> list[list[float]]:
-            return embed_texts(texts, settings=settings).tolist()
+            return embed_texts(texts, settings=settings, role="passage").tolist()
 
         def embed_query(self, text: str) -> list[float]:
-            return embed_texts([text], settings=settings)[0].tolist()
+            return embed_texts([text], settings=settings, role="query")[0].tolist()
 
     chunker = SemanticChunker(
         embeddings=_EmbeddingsAdapter(),

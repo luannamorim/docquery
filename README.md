@@ -180,6 +180,29 @@ DOCQUERY_DOCLING_INTEGRATION=1 uv run pytest -m docling
 
 Fixtures live in `tests/fixtures/` and are synthetic; regenerate them with `uv run python tests/fixtures/generate.py`.
 
+## Corpus em português
+
+The default models are English-trained: `all-MiniLM-L6-v2` never saw Portuguese as more than noise, and `ms-marco-MiniLM-L-6-v2` was tuned on English MS MARCO. They work — hybrid retrieval leans on BM25, which is language-agnostic now that tokens are accent-folded — but semantic recall on a PT corpus is measurably worse. For a Portuguese corpus, the recommended pair (set via `.env`, defaults unchanged):
+
+| Setting | Recommended | Note |
+|---------|-------------|------|
+| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | 768 dims, 512-token window (Docling chunk sizing follows automatically) |
+| `EMBEDDING_DIMENSION` | `768` | validated against the model at boot |
+| `RERANKER_MODEL` | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | mMARCO includes PT; emits logits like the default |
+
+The e5 family is trained with asymmetric `query:`/`passage:` markers. The embedder applies them itself, conditioned on the model name — callers state a role, never a prefix — so the two sides of the search cannot desynchronize. `ANSWER_LANGUAGE=pt-BR` pins answers to Portuguese regardless of the question's language, if a deployment wants that.
+
+**Migration — both of these require a full re-ingest:**
+
+- **Accent folding (BM25):** an index built before the fold holds token fragments (`quita`, `o`) that queries no longer produce.
+- **Embedder swap:** 768-dim vectors live in a different space and a different-size collection — delete/recreate the collection, then re-ingest. `eval/results/baseline.json` records model ids; regenerate it (and re-measure `RERANKER_SCORE_THRESHOLD` — `-5.0` is calibrated to ms-marco logits) before trusting any before/after comparison.
+
+First start with the PT pair downloads ~1.1GB into the `hf_cache` volume (the ~90MB figure elsewhere is for the default pair). The end-to-end PT retrieval test is opt-in, like the Docling and MySQL suites:
+
+```bash
+DOCQUERY_MULTILINGUAL_E2E=1 uv run pytest -m multilingual
+```
+
 ## Quickstart
 
 **Prerequisites:** Docker, an OpenAI API key.
@@ -230,6 +253,7 @@ make serve
 | RBAC           | JWT decode, header, body field        | **Sector derived from the tree + Entra ID app roles**           | The compartment is derived server-side from the path (frontmatter ignored); the grant comes from a verified `roles` claim, falling back to the `X-User-Sectors` header only when `AUTH_ENABLED=false` |
 | Auth           | Custom JWT, Authlib, python-jose, PyJWT | **PyJWT + `PyJWKClient`**                                     | Smallest dependency that validates properly: JWKS caching and key-rotation refetch are built in, `cryptography` comes with it for RS256. python-jose is unmaintained; Authlib ships an OAuth client the API never needs |
 | Injection guard | Llama Guard, NeMo Guardrails, custom | **NFKC-normalized regex validator (guard.py)**                  | Zero latency, zero dependencies, covers OWASP LLM01/LLM06 patterns in EN + PT-BR/ES, NFKC handles fullwidth-Latin evasions; second layer is hardened system prompt; third is `check_context()` over retrieved chunks |
+| PT models      | Swap defaults, document opt-in pair   | **Defaults unchanged; e5-base + mmarco recommended via `.env`** | Changing defaults forces a reindex on every existing install and invalidates the eval baseline; the code carries full e5 prefix support so the opt-in is one env change, measured before adoption |
 
 ## Evaluation Results
 

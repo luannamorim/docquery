@@ -20,7 +20,8 @@ services:
       # the container can ingest it when INGEST_ROOT=data.
       - ./data:/app/data:ro
       # Self-contained model cache so `docker compose up` works on any host
-      # regardless of UID. First run downloads the models (~90MB); persists after.
+      # regardless of UID. First run downloads the models (~90MB for the
+      # defaults; ~1.1GB for the multilingual pair in .env.example); persists.
       - hf_cache:/home/appuser/.cache/huggingface
       # Google Drive service account key, mounted as a file rather than passed
       # through the environment. Uncomment alongside

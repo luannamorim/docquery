@@ -141,6 +141,9 @@ def test_no_upserted_payload_contains_a_valid_cpf(monkeypatch):
     settings = Settings(
         pii_redaction_enabled=True,
         qdrant_collection=COLLECTION,
+        # Fake model name to match the faked DIM-dim dense side — a real
+        # model name with a wrong dimension fails at boot.
+        embedding_model="test/fake-embedder",
         embedding_dimension=DIM,
     )
     chunks = [

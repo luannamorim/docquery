@@ -72,6 +72,7 @@ pythonpath = ["src"]
 markers = [
     "docling: end-to-end Docling conversion; needs the models, minutes to run",
     "mysql: MySQL-backed stores against a real server; opt-in",
+    "multilingual: e5 retrieval end-to-end; downloads ~1.1GB of weights; opt-in",
 ]
 
 [[tool.uv.index]]
