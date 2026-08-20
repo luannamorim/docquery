@@ -769,13 +769,20 @@ export function reviewPanel(
 
     const when = new Date(doc.last_reported_at);
     const last = Number.isNaN(when.getTime()) ? "" : when.toLocaleDateString();
+    // "do documento": beside the report dates on the same line, a bare
+    // "atualização" reads as one more report timestamp.
+    const updated = updatedLabel(doc.modified_at);
+    const docUpdated =
+      updated === "data desconhecida"
+        ? "atualização do documento: desconhecida"
+        : updated.replace("atualização:", "atualização do documento:");
     item.append(
       el(
         "div",
         "review-meta",
         `${doc.report_count} ${
           doc.report_count === 1 ? "sinalização" : "sinalizações"
-        }${last ? ` · última em ${last}` : ""} · ${updatedLabel(doc.modified_at)}`,
+        }${last ? ` · última em ${last}` : ""} · ${docUpdated}`,
       ),
     );
     if (doc.comments.length) {
