@@ -350,6 +350,12 @@ button {
 
 /* The door to the review list, above the user footer. Quiet like a
  * conversation row: reviewing is an occasional task, not the main one. */
+/* The line between "your conversations" and "the team's review work". */
+.rail-divider {
+  border-top: 1px solid var(--rule);
+  margin: 0.5rem 0.25rem 0.25rem;
+}
+
 .rail-review {
   display: flex;
   align-items: center;

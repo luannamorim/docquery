@@ -331,10 +331,12 @@ async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLEl
   }
 
   if (feedbackEnabled) {
+    // Sitting right under the conversation list, the button read as one more
+    // conversation; the rule says a different section starts here.
     const review = el("button", "rail-review");
     review.append(flagIcon(), el("span", undefined, "Documentos sinalizados"));
     review.addEventListener("click", () => void showReview(turns, scroll));
-    rail.append(review);
+    rail.append(el("div", "rail-divider"), review);
   }
 
   const username = account()?.username ?? "";
