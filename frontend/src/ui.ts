@@ -209,11 +209,18 @@ function paintFlagged(flag: HTMLButtonElement): void {
   flag.setAttribute("aria-label", "Sinalizado como desatualizado");
 }
 
+/** The inline mirror of the flag: this citation's document has an open report. */
+function paintFlaggedCite(marker: HTMLElement): void {
+  marker.dataset.flagged = "true";
+  marker.title = "Fonte sinalizada como desatualizada";
+}
+
 /**
  * A report covers the document, not the passage: once this asker reports one
  * card, every card of the same source on screen shows the red flag and stops
- * offering to report again. The next answer gets the same truth from the
- * server (`source.flagged`), so nothing here needs to persist.
+ * offering to report again — and every [n] marker citing it in the answer
+ * text. The next answer gets the same truth from the server
+ * (`source.flagged`), so nothing here needs to persist.
  */
 function markReported(source: string): void {
   document
@@ -224,6 +231,12 @@ function markReported(source: string): void {
         flag.disabled = true;
       }
     });
+  document.querySelectorAll<HTMLElement>(".source").forEach((card) => {
+    if (card.dataset.source === source) card.dataset.flagged = "true";
+  });
+  document.querySelectorAll<HTMLElement>("button.cite").forEach((marker) => {
+    if (marker.dataset.source === source) paintFlaggedCite(marker);
+  });
 }
 
 /**
@@ -296,6 +309,9 @@ function sourceCard(source: Source, onReport?: ReportHandler): HTMLElement {
   card.type = "button";
   card.setAttribute("aria-expanded", "false");
   card.dataset.index = String(source.index);
+  // The [n] markers in the answer read these back to mirror the flag inline.
+  card.dataset.source = source.source;
+  if (source.flagged) card.dataset.flagged = "true";
 
   const index = el("span", "source-index", `[${source.index}]`);
   const tab = el("span", "source-sector");
@@ -358,6 +374,16 @@ export function markCitedSources(block: HTMLElement, answer: string): void {
   const cards = Array.from(block.querySelectorAll<HTMLElement>(".source"));
   if (!cards.length) return;
 
+  // A history turn draws the answer before its sources, so its markers were
+  // born with no card to read. Both exist now: mirror the flag onto them.
+  const byIndex = new Map(cards.map((card) => [card.dataset.index ?? "", card]));
+  block.querySelectorAll<HTMLElement>("button.cite").forEach((marker) => {
+    const card = byIndex.get(marker.dataset.index ?? "");
+    if (!card) return;
+    marker.dataset.source = card.dataset.source ?? "";
+    if (card.dataset.flagged === "true") paintFlaggedCite(marker);
+  });
+
   const uncited = cards.filter((card) => !cited.has(card.dataset.index ?? ""));
   if (!uncited.length) return;
 
@@ -419,8 +445,17 @@ export function sourcesBlock(
 function citationMarker(index: string, container: HTMLElement): HTMLElement {
   const marker = el("button", "cite", `[${index}]`);
   marker.type = "button";
+  marker.dataset.index = index;
   const card = () =>
     container.querySelector<HTMLElement>(`.source[data-index="${index}"]`);
+  // While streaming, the cards are already drawn when a marker is born, so it
+  // can mirror the flag at once. A history turn draws the answer first — there
+  // the card is still missing and markCitedSources does the mirroring.
+  const born = card();
+  if (born) {
+    marker.dataset.source = born.dataset.source ?? "";
+    if (born.dataset.flagged === "true") paintFlaggedCite(marker);
+  }
   const light = (on: boolean) => {
     const target = card();
     if (target) target.dataset.lit = String(on);

@@ -733,6 +733,15 @@ button {
   color: var(--paper);
 }
 
+/* The inline mirror of the card's flag. Colour alone is not the message:
+   the marker's title says it in words. */
+.cite[data-flagged="true"]::after {
+  content: "⚑";
+  color: var(--warn);
+  font-size: 0.9em;
+  margin-left: 0.1em;
+}
+
 .meta {
   margin-top: 0.75rem;
   font-size: 0.78rem;
