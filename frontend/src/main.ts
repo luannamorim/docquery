@@ -1,9 +1,12 @@
 /**
  * docquery — ask the company's documents a question.
  *
- * Deliberately one screen with no client-side router: the API serves this
- * bundle from its own origin at "/", and adding routes would mean teaching the
- * static mount to fall back to index.html for paths it does not have.
+ * Routing is by URL fragment (#/conversas/<id>, #/sinalizados) — deliberately
+ * reopening the earlier "one screen, no client-side router" rule, like SSE and
+ * the SPA itself before it. The fragment never reaches the server, so the
+ * static mount needs no index.html fallback and no id lands in access or proxy
+ * logs — the same reason /query/stream is POST. Clicks only change the hash;
+ * the hashchange listener renders, so back/forward and clicks share one path.
  */
 import "./styles.css";
 import {
@@ -51,6 +54,13 @@ let appName = "docquery";
 let feedbackEnabled = false;
 let conversationFilter = "";
 let searchOpen = false;
+
+/** Assigned by start(), where the shell's elements exist. Rail handlers call
+ *  it instead of rendering: same-hash means re-render in place, a new hash
+ *  goes through location.hash so hashchange renders it — one path shared with
+ *  back/forward. An empty hash uses pushState to keep the address bare
+ *  (location.hash = "" would leave a dangling "#"). */
+let navigate: (hash: string) => void = () => {};
 
 /** The part of an address a person recognises themselves by.
  *  ana.silva@empresa.com.br is the same person in every row of the sidebar;
@@ -225,19 +235,12 @@ function shell(): { rail: HTMLElement; scroll: HTMLElement; turns: HTMLElement }
   return { rail, scroll, turns };
 }
 
-async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLElement) {
+async function refreshRail(rail: HTMLElement) {
   rail.replaceChildren();
   rail.append(wordmark());
 
   const fresh = el("button", "new-chat", "+ Nova conversa");
-  fresh.addEventListener("click", () => {
-    currentConversation = null;
-    turns.replaceChildren();
-    showEmpty(turns);
-    void refreshRail(rail, turns, scroll);
-    // Starting a conversation is the act of wanting to type one.
-    focusComposer();
-  });
+  fresh.addEventListener("click", () => navigate(""));
   rail.append(fresh);
 
   try {
@@ -319,7 +322,7 @@ async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLEl
       button.title = item.title;
       button.dataset.title = item.title ?? "";
       if (item.id === currentConversation) button.setAttribute("aria-current", "true");
-      button.addEventListener("click", () => void open(item.id, rail, turns, scroll));
+      button.addEventListener("click", () => navigate(`#/conversas/${item.id}`));
       rows.push(button);
       list.append(button);
     }
@@ -335,7 +338,7 @@ async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLEl
     // conversation; the rule says a different section starts here.
     const review = el("button", "rail-review");
     review.append(flagIcon(), el("span", undefined, "Documentos sinalizados"));
-    review.addEventListener("click", () => void showReview(turns, scroll));
+    review.addEventListener("click", () => navigate("#/sinalizados"));
     rail.append(el("div", "rail-divider"), review);
   }
 
@@ -366,10 +369,10 @@ async function refreshRail(rail: HTMLElement, turns: HTMLElement, scroll: HTMLEl
   rail.append(foot);
 }
 
-/** The review list takes the thread's place — this app deliberately has no
- *  router, so "another screen" is the turns container showing something else,
- *  the same mechanics open() uses. Asking a question leaves it again. */
-async function showReview(turns: HTMLElement, scroll: HTMLElement) {
+/** The review list takes the thread's place — "another screen" is the turns
+ *  container showing something else, the same mechanics open() uses; the
+ *  router decides which. Asking a question leaves it again. */
+async function showReview(rail: HTMLElement, turns: HTMLElement, scroll: HTMLElement) {
   currentConversation = null;
   turns.replaceChildren();
   try {
@@ -378,6 +381,7 @@ async function showReview(turns: HTMLElement, scroll: HTMLElement) {
   } catch (error) {
     turns.append(el("div", "error", (error as Error).message));
   }
+  await refreshRail(rail);
   scroll.scrollTop = 0;
 }
 
@@ -405,7 +409,7 @@ async function open(
   } catch (error) {
     turns.append(el("div", "error", (error as Error).message));
   }
-  await refreshRail(rail, turns, scroll);
+  await refreshRail(rail);
   scroll.scrollTop = scroll.scrollHeight;
   // Reopening a conversation is almost always continuing it.
   focusComposer();
@@ -463,6 +467,13 @@ async function submit(
         // knowable — and only now.
         markCitedSources(answerSide, answer);
         currentConversation = event.conversationId ?? currentConversation;
+        if (currentConversation) {
+          // replaceState, not location.hash: assigning the hash would fire
+          // hashchange and re-render the thread out from under the answer just
+          // streamed into it — and the question that grew this conversation is
+          // not a place the back button should stop at.
+          history.replaceState(null, "", `#/conversas/${currentConversation}`);
+        }
         if (event.rewritten) {
           // A mark inside the bubble, revealed on click.
           attachRewrite(questionRow, event.rewritten);
@@ -492,8 +503,40 @@ async function start() {
     if (!signedIn) return signInScreen();
 
     const { rail, scroll, turns } = shell();
-    showEmpty(turns);
-    await refreshRail(rail, turns, scroll);
+
+    // The router: the hash names the screen, this renders it. Runs on load —
+    // which is how a deep link works, and how the one MSAL brings back after
+    // the sign-in round trip is honoured — and on every hashchange, which is
+    // how back/forward work without any handler knowing about history.
+    const render = () => {
+      const conv = /^#\/conversas\/([\w-]+)$/.exec(location.hash);
+      if (conv) return void open(conv[1], rail, turns, scroll);
+      if (location.hash === "#/sinalizados" && feedbackEnabled) {
+        return void showReview(rail, turns, scroll);
+      }
+      // Unrecognised fragments — a stale link, a typo, #/sinalizados with the
+      // feature off — show home and say so in the address bar.
+      if (location.hash) {
+        history.replaceState(null, "", location.pathname + location.search);
+      }
+      currentConversation = null;
+      turns.replaceChildren();
+      showEmpty(turns);
+      void refreshRail(rail);
+      // Starting a conversation is the act of wanting to type one.
+      focusComposer();
+    };
+    navigate = (hash) => {
+      if (location.hash === hash) return render();
+      if (hash) {
+        location.hash = hash;
+      } else {
+        history.pushState(null, "", location.pathname + location.search);
+        render();
+      }
+    };
+    window.addEventListener("hashchange", render);
+    render();
   } catch (error) {
     root.replaceChildren(el("p", "boot", (error as Error).message));
   }
