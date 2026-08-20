@@ -80,7 +80,11 @@ class InMemoryFeedbackStore:
                 "sector": sector,
                 "report_count": len(rows),
                 "last_reported_at": datetime.now(UTC),
-                "comments": [r["comment"] for r in rows if r["comment"]],
+                "comments": [
+                    {"comment": r["comment"], "reported_at": datetime.now(UTC)}
+                    for r in rows
+                    if r["comment"]
+                ],
                 "_at": max(r["at"] for r in rows),
             }
             for (h, sector), rows in groups.items()
@@ -209,7 +213,9 @@ def test_a_report_is_recorded_and_listed(client, private_key):
     doc = listed["documents"][0]
     assert doc["source"] == CONTRATO
     assert doc["report_count"] == 1
-    assert doc["comments"] == ["valores de 2023"]
+    assert [c["comment"] for c in doc["comments"]] == ["valores de 2023"]
+    # Each comment carries when it was reported, so the review panel can date it.
+    assert doc["comments"][0]["reported_at"]
 
 
 def test_a_repeat_report_updates_instead_of_duplicating(client, private_key):
@@ -226,7 +232,7 @@ def test_a_repeat_report_updates_instead_of_duplicating(client, private_key):
     assert response.json()["created"] is False
     doc = api.get("/feedback", headers=_auth(private_key)).json()["documents"][0]
     assert doc["report_count"] == 1
-    assert doc["comments"] == ["versão nova no drive"]
+    assert [c["comment"] for c in doc["comments"]] == ["versão nova no drive"]
 
 
 def test_reports_aggregate_across_reporters(client, private_key):

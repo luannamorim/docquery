@@ -57,12 +57,17 @@ export async function conversation(id: string): Promise<Conversation> {
   return response.json();
 }
 
+export type ReportComment = {
+  comment: string;
+  reported_at: string;
+};
+
 export type ReportedDocument = {
   source: string;
   sector: string;
   report_count: number;
   last_reported_at: string;
-  comments: string[];
+  comments: ReportComment[];
 };
 
 /** The reported documents in the caller's sectors, newest activity first. */

@@ -117,14 +117,15 @@ class FeedbackStore:
             for row in rows:
                 cur.execute(
                     f"""
-                    SELECT comment FROM document_reports
+                    SELECT comment, updated_at AS reported_at
+                    FROM document_reports
                     WHERE source_hash = %s AND sector = %s AND comment <> ''
                     {predicate.replace("WHERE", "AND", 1)}
                     ORDER BY updated_at DESC
                     """,
                     (row["source_hash"], row["sector"], *params),
                 )
-                row["comments"] = [r["comment"] for r in cur.fetchall()]
+                row["comments"] = list(cur.fetchall())
                 del row["source_hash"]
         return rows
 

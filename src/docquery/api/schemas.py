@@ -193,12 +193,17 @@ class FeedbackReportResponse(BaseModel):
     )
 
 
+class ReportComment(BaseModel):
+    comment: str
+    reported_at: datetime
+
+
 class ReportedDocument(BaseModel):
     source: str
     sector: str
     report_count: int
     last_reported_at: datetime
-    comments: list[str] = Field(default_factory=list)
+    comments: list[ReportComment] = Field(default_factory=list)
 
 
 class FeedbackListResponse(BaseModel):

@@ -726,8 +726,15 @@ export function reviewPanel(
     );
     if (doc.comments.length) {
       const list = el("ul", "review-comments");
-      for (const comment of doc.comments) {
-        list.append(el("li", undefined, comment));
+      for (const { comment, reported_at } of doc.comments) {
+        const entry = el("li");
+        const when = new Date(reported_at);
+        if (!Number.isNaN(when.getTime())) {
+          entry.append(el("span", "review-comment-date", when.toLocaleDateString()));
+          entry.append(document.createTextNode(" · "));
+        }
+        entry.append(document.createTextNode(comment));
+        list.append(entry);
       }
       item.append(list);
     }

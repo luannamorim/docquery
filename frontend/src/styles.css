@@ -950,6 +950,11 @@ button {
   color: var(--ink-soft);
 }
 
+.review-comment-date {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
 .empty h1 {
   font-size: 1.6rem;
   font-weight: 650;

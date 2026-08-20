@@ -51,7 +51,9 @@ def test_a_first_report_is_created(store):
     assert docs[0]["source"] == CONTRATO
     assert docs[0]["sector"] == "financeiro"
     assert docs[0]["report_count"] == 1
-    assert docs[0]["comments"] == ["valores de 2023"]
+    assert [c["comment"] for c in docs[0]["comments"]] == ["valores de 2023"]
+    # Each comment carries when it was reported, so the review panel can date it.
+    assert docs[0]["comments"][0]["reported_at"] is not None
 
 
 def test_a_repeat_report_by_the_same_reporter_updates_instead_of_duplicating(store):
@@ -61,7 +63,7 @@ def test_a_repeat_report_by_the_same_reporter_updates_instead_of_duplicating(sto
 
     docs = store.list_reports(sectors=None)
     assert docs[0]["report_count"] == 1
-    assert docs[0]["comments"] == ["já existe versão nova"]
+    assert [c["comment"] for c in docs[0]["comments"]] == ["já existe versão nova"]
 
 
 def test_two_reporters_aggregate_on_the_same_document(store):
@@ -72,7 +74,7 @@ def test_two_reporters_aggregate_on_the_same_document(store):
     assert len(docs) == 1
     assert docs[0]["report_count"] == 2
     # Empty comments carry nothing worth listing.
-    assert docs[0]["comments"] == ["cláusula 3 mudou"]
+    assert [c["comment"] for c in docs[0]["comments"]] == ["cláusula 3 mudou"]
 
 
 def test_the_list_is_scoped_by_sector(store):
