@@ -138,7 +138,35 @@ def convert(path: Path, settings: Settings | None = None) -> Any:
         max_num_pages=settings.docling_max_pages,
         max_file_size=max_bytes,
     )
+    _check_conversion_complete(path, result, settings)
     return result.document
+
+
+def _check_conversion_complete(path: Path, result: Any, settings: Settings) -> None:
+    """Reject a partial conversion instead of indexing the half that finished.
+
+    Docling reports a mid-pipeline timeout (and other per-stage failures) as
+    PARTIAL_SUCCESS on the result — it does not raise — so without this check
+    a document whose OCR was cut off is indexed as if it converted cleanly,
+    and every question about the missing text gets a confident wrong answer.
+    """
+    from docling.datamodel.base_models import ConversionStatus, FailureCategory
+
+    if result.status == ConversionStatus.SUCCESS:
+        return
+    detail = (
+        "; ".join(e.error_message for e in result.errors) or str(result.status)
+    )
+    if any(e.category == FailureCategory.TIMEOUT for e in result.errors):
+        # Same contract as the size and page limits: a configured ceiling is
+        # operator policy and must not degrade to the legacy parser, which
+        # would drop the OCR text just as silently.
+        raise DoclingLimitExceeded(
+            f"{path} did not convert within DOCLING_TIMEOUT_SECONDS="
+            f"{settings.docling_timeout_seconds:g}: {detail} "
+            f"(raise DOCLING_TIMEOUT_SECONDS to allow it)"
+        )
+    raise DoclingConversionError(f"{path} converted only partially: {detail}")
 
 
 def _check_page_limit(path: Path, settings: Settings) -> None:

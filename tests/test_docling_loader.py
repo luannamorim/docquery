@@ -321,3 +321,74 @@ def test_oversized_pdf_is_not_silently_downgraded_to_the_legacy_parser(tmp_path)
     settings = Settings(docling_enabled=True, docling_max_file_mb=1)
     with pytest.raises(docling_loader.DoclingLimitExceeded):
         load_document(big, settings)
+
+
+def _partial_result(category):
+    """A ConversionResult stand-in: partial status, one structured error."""
+    from types import SimpleNamespace
+
+    from docling.datamodel.base_models import ConversionStatus, ErrorItem
+    from docling.datamodel.base_models import DoclingComponentType
+
+    return SimpleNamespace(
+        status=ConversionStatus.PARTIAL_SUCCESS,
+        errors=[
+            ErrorItem(
+                component_type=DoclingComponentType.PIPELINE,
+                module_name="base_pipeline",
+                error_message="Document processing timeout: exceeded 300.000s limit",
+                category=category,
+            )
+        ],
+        document=_doc_with_pages(),
+    )
+
+
+def _stub_converter(result):
+    class _Converter:
+        def convert(self, path, **kwargs):
+            return result
+
+    return _Converter()
+
+
+def test_timed_out_conversion_is_rejected_not_indexed_partially():
+    """A timeout mid-OCR must not silently index the pre-OCR half of the file."""
+    from docling.datamodel.base_models import FailureCategory
+
+    settings = Settings(docling_enabled=True)
+    result = _partial_result(FailureCategory.TIMEOUT)
+    with patch.object(
+        docling_loader, "_converter", return_value=_stub_converter(result)
+    ):
+        with pytest.raises(
+            docling_loader.DoclingLimitExceeded, match="DOCLING_TIMEOUT_SECONDS"
+        ):
+            docling_loader.convert(FIXTURES / "native_text.pdf", settings)
+
+
+def test_timed_out_pdf_is_not_silently_downgraded_to_the_legacy_parser():
+    """The timeout is operator policy, like the size and page limits."""
+    from docling.datamodel.base_models import FailureCategory
+
+    settings = Settings(docling_enabled=True)
+    result = _partial_result(FailureCategory.TIMEOUT)
+    with patch.object(
+        docling_loader, "_converter", return_value=_stub_converter(result)
+    ):
+        with pytest.raises(docling_loader.DoclingLimitExceeded):
+            load_document(FIXTURES / "native_text.pdf", settings)
+
+
+def test_partial_conversion_without_timeout_is_a_conversion_error():
+    """Any partial result is incomplete text; it must never pass as success."""
+    from docling.datamodel.base_models import FailureCategory
+
+    settings = Settings(docling_enabled=True)
+    result = _partial_result(FailureCategory.BACKEND_FAILURE)
+    with patch.object(
+        docling_loader, "_converter", return_value=_stub_converter(result)
+    ):
+        with pytest.raises(docling_loader.DoclingConversionError):
+            docling_loader.convert(FIXTURES / "native_text.pdf", settings)
+
