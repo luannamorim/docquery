@@ -206,6 +206,9 @@ class ReportedDocument(BaseModel):
     report_count: int
     last_reported_at: datetime
     comments: list[ReportComment] = Field(default_factory=list)
+    # The document's own update date, read live from the index at list time —
+    # a re-ingest after the flag shows here. "" when the index does not know.
+    modified_at: str = ""
 
 
 class FeedbackListResponse(BaseModel):

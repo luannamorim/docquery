@@ -30,6 +30,48 @@ def _client(settings: Settings) -> QdrantClient:
     )
 
 
+def modified_for_sources(
+    sources: list[str], settings: Settings, sectors: list[str] | None
+) -> dict[str, str]:
+    """modified_at per source, for the sources the caller may see.
+
+    Read live from the index rather than snapshotted with the report: a
+    re-ingest after the flag should show the new date — "has it been updated
+    since?" is the question a reviewer is asking. A source that is missing,
+    outside the caller's sectors or dateless is simply absent from the result;
+    the same sector filter rides in the Qdrant query, never a check after.
+    """
+    if sectors is not None:
+        sectors = [s for s in sectors if s]
+        if not sectors:
+            return {}
+    if not sources:
+        return {}
+
+    client = _client(settings)
+    existing = {c.name for c in client.get_collections().collections}
+    if settings.qdrant_collection not in existing:
+        return {}
+
+    out: dict[str, str] = {}
+    for source in sources:
+        must = [FieldCondition(key="source", match=MatchValue(value=source))]
+        if sectors:
+            must.append(FieldCondition(key="sector", match=MatchAny(any=sectors)))
+        points, _ = client.scroll(
+            collection_name=settings.qdrant_collection,
+            scroll_filter=Filter(must=must),
+            limit=1,
+            with_payload=["modified_at"],
+            with_vectors=False,
+        )
+        if points:
+            value = (points[0].payload or {}).get("modified_at") or ""
+            if value:
+                out[source] = value
+    return out
+
+
 def sector_for_source(
     source: str, settings: Settings, sectors: list[str] | None
 ) -> str | None:

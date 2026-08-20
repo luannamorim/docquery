@@ -775,7 +775,7 @@ export function reviewPanel(
         "review-meta",
         `${doc.report_count} ${
           doc.report_count === 1 ? "sinalização" : "sinalizações"
-        }${last ? ` · última em ${last}` : ""}`,
+        }${last ? ` · última em ${last}` : ""} · ${updatedLabel(doc.modified_at)}`,
       ),
     );
     if (doc.comments.length) {

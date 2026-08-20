@@ -38,6 +38,9 @@ FERIAS = "data/rh/ferias.md"
 # What the (stubbed) index knows: source → sector.
 CORPUS = {CONTRATO: "financeiro", FERIAS: "rh"}
 
+# What the (stubbed) index knows about update dates: source → modified_at.
+MODIFIED = {CONTRATO: "2026-08-15T10:00:00"}
+
 
 class InMemoryFeedbackStore:
     """Same surface as FeedbackStore, without the database.
@@ -184,6 +187,11 @@ def _fake_sector_for_source(source, settings, sectors):
     return sector
 
 
+def _fake_modified_for_sources(sources, settings, sectors):
+    """The lookup's contract: only sources the index knows come back."""
+    return {s: MODIFIED[s] for s in sources if s in MODIFIED}
+
+
 @pytest.fixture
 def client(signing_key, monkeypatch):
     """TestClient with auth on, a fake store, and the sector lookup stubbed."""
@@ -193,6 +201,9 @@ def client(signing_key, monkeypatch):
     app.dependency_overrides[get_settings] = lambda: _settings()
     app.dependency_overrides[get_feedback_store] = lambda: store
     monkeypatch.setattr(routes, "sector_for_source", _fake_sector_for_source)
+    monkeypatch.setattr(
+        routes, "modified_for_sources", _fake_modified_for_sources, raising=False
+    )
     yield TestClient(app), store
     app.dependency_overrides.clear()
 
@@ -226,6 +237,24 @@ def test_a_report_is_recorded_and_listed(client, private_key):
     # Each comment carries when and by whom, so the review panel can say both.
     assert doc["comments"][0]["reported_at"]
     assert doc["comments"][0]["reporter_name"] == "Ana Lima"
+    # The document's own update date rides along, read live from the index.
+    assert doc["modified_at"] == "2026-08-15T10:00:00"
+
+
+def test_the_list_survives_a_failed_modified_lookup(client, private_key, monkeypatch):
+    """The review list must not depend on Qdrant: a failed date lookup logs
+    and the documents go out dateless, never a 500."""
+    api, _ = client
+    api.post("/feedback", json={"source": CONTRATO}, headers=_auth(private_key))
+
+    def _broken(sources, settings, sectors):
+        raise ConnectionError("qdrant is down")
+
+    monkeypatch.setattr(routes, "modified_for_sources", _broken, raising=False)
+    response = api.get("/feedback", headers=_auth(private_key))
+
+    assert response.status_code == 200
+    assert response.json()["documents"][0]["modified_at"] == ""
 
 
 def test_a_token_without_a_name_reports_anonymously(client, private_key):

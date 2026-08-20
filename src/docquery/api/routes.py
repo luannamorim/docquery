@@ -34,7 +34,7 @@ from docquery.folders import normalize_segment
 from docquery.generate.contextualize import contextualize
 from docquery.generate.rag import query_pipeline, query_pipeline_stream
 from docquery.history.store import ConversationStore
-from docquery.retrieve.lookup import sector_for_source
+from docquery.retrieve.lookup import modified_for_sources, sector_for_source
 from docquery.ingest.pipeline import ingest_source
 from docquery.ingest.sources import (
     SourceError,
@@ -673,6 +673,7 @@ def report_document(
 
 @router.get("/feedback", tags=["feedback"])
 def list_reported_documents(
+    settings: SettingsDep,
     sectors: SectorsDep,
     feedback: FeedbackStoreDep,
 ) -> FeedbackListResponse:
@@ -682,10 +683,24 @@ def list_reported_documents(
     /conversations with history off. The store handles the sectors
     three-state; None still means "do not filter" even though auth being
     required makes it unreachable here today.
+
+    Each document carries its update date, read live from the index so a
+    re-ingest after the flag shows here. The list must not depend on Qdrant:
+    a failed lookup logs and the documents go out dateless, never a 500.
     """
     if feedback is None:
         return FeedbackListResponse(documents=[])
-    return FeedbackListResponse(documents=feedback.list_reports(sectors))
+    documents = feedback.list_reports(sectors)
+    try:
+        modified = modified_for_sources(
+            [d["source"] for d in documents], settings, sectors
+        )
+    except Exception:
+        logger.warning("Modified-at lookup failed; the review list goes out dateless")
+        modified = {}
+    for d in documents:
+        d["modified_at"] = modified.get(d["source"], "")
+    return FeedbackListResponse(documents=documents)
 
 
 @router.post("/feedback/resolve", tags=["feedback"], status_code=204)

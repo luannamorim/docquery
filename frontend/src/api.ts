@@ -70,6 +70,8 @@ export type ReportedDocument = {
   report_count: number;
   last_reported_at: string;
   comments: ReportComment[];
+  /** The document's own update date, live from the index; "" when unknown. */
+  modified_at: string;
 };
 
 /** The reported documents in the caller's sectors, newest activity first. */
