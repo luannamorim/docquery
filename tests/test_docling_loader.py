@@ -327,8 +327,11 @@ def _partial_result(category):
     """A ConversionResult stand-in: partial status, one structured error."""
     from types import SimpleNamespace
 
-    from docling.datamodel.base_models import ConversionStatus, ErrorItem
-    from docling.datamodel.base_models import DoclingComponentType
+    from docling.datamodel.base_models import (
+        ConversionStatus,
+        DoclingComponentType,
+        ErrorItem,
+    )
 
     return SimpleNamespace(
         status=ConversionStatus.PARTIAL_SUCCESS,
@@ -415,7 +418,7 @@ def _doc_with_ocr_screenshot() -> DoclingDocument:
         doc.add_text(
             label=DocItemLabel.TEXT,
             text=line,
-            prov=_prov_at(1, t=top, b=top - 12, l=100, r=300),
+            prov=_prov_at(1, t=top, b=top - 12, left=100, r=300),
             parent=picture,
         )
     return doc
@@ -448,10 +451,10 @@ def test_picture_chunk_with_ocr_text_is_marked_as_figure():
     assert any("279" in c.text for c in figure_chunks)
 
 
-def _prov_at(page: int, *, t: float, b: float, l: float, r: float) -> ProvenanceItem:
+def _prov_at(page: int, *, t: float, b: float, left: float, r: float) -> ProvenanceItem:
     return ProvenanceItem(
         page_no=page,
-        bbox=BoundingBox(l=l, t=t, r=r, b=b, coord_origin=CoordOrigin.BOTTOMLEFT),
+        bbox=BoundingBox(l=left, t=t, r=r, b=b, coord_origin=CoordOrigin.BOTTOMLEFT),
         charspan=(0, 10),
     )
 
@@ -473,16 +476,18 @@ def test_ocr_lines_are_rebuilt_from_boxes_not_tree_order():
     ]
     for label, count, top, bottom in rows:
         doc.add_text(
-            label=DocItemLabel.TEXT, text=label,
-            prov=_prov_at(1, t=top, b=bottom, l=113, r=250), parent=picture,
+            label=DocItemLabel.TEXT,
+            text=label,
+            prov=_prov_at(1, t=top, b=bottom, left=113, r=250),
+            parent=picture,
         )
         doc.add_text(
-            label=DocItemLabel.TEXT, text=count,
-            prov=_prov_at(1, t=top + 1, b=bottom, l=284, r=306), parent=picture,
+            label=DocItemLabel.TEXT,
+            text=count,
+            prov=_prov_at(1, t=top + 1, b=bottom, left=284, r=306),
+            parent=picture,
         )
-    chunks = chunk_document(
-        _as_document(doc), Settings(docling_enabled=True)
-    )
+    chunks = chunk_document(_as_document(doc), Settings(docling_enabled=True))
     joined = "\n".join(c.text for c in chunks)
     assert "Ticket Atendimento Telefonia | 279" in joined
     assert "Tickets Novos Atendimentos | 74" in joined

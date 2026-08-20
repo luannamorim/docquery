@@ -46,8 +46,7 @@ def store():
 
 def test_a_first_report_is_created(store):
     assert (
-        store.report(CONTRATO, "financeiro", ANA, "valores de 2023", "Ana Lima")
-        is True
+        store.report(CONTRATO, "financeiro", ANA, "valores de 2023", "Ana Lima") is True
     )
 
     docs = store.list_reports(sectors=None)

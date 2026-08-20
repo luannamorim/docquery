@@ -107,14 +107,21 @@ class FeedbackStore:
                     comment = %s, sector = %s, reporter_name = %s,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (source, source_hash(source), sector, reporter, reporter_name,
-                 comment, comment, sector, reporter_name),
+                (
+                    source,
+                    source_hash(source),
+                    sector,
+                    reporter,
+                    reporter_name,
+                    comment,
+                    comment,
+                    sector,
+                    reporter_name,
+                ),
             )
             return cur.rowcount == 1
 
-    def list_reports(
-        self, sectors: list[str] | None, limit: int = 200
-    ) -> list[dict]:
+    def list_reports(self, sectors: list[str] | None, limit: int = 200) -> list[dict]:
         """Reported documents the caller may see, newest activity first.
 
         None means "do not filter" (auth off never reaches here, but the store

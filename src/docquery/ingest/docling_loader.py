@@ -154,9 +154,7 @@ def _check_conversion_complete(path: Path, result: Any, settings: Settings) -> N
 
     if result.status == ConversionStatus.SUCCESS:
         return
-    detail = (
-        "; ".join(e.error_message for e in result.errors) or str(result.status)
-    )
+    detail = "; ".join(e.error_message for e in result.errors) or str(result.status)
     if any(e.category == FailureCategory.TIMEOUT for e in result.errors):
         # Same contract as the size and page limits: a configured ceiling is
         # operator policy and must not degrade to the legacy parser, which

@@ -78,9 +78,7 @@ def test_none_sectors_skips_the_sector_condition(use_client):
 def test_blank_sectors_are_dropped_before_the_filter(use_client):
     client = use_client(StubClient(points=[_point("rh")]))
 
-    assert (
-        lookup.sector_for_source("data/x.pdf", _settings(), sectors=[""]) is None
-    )
+    assert lookup.sector_for_source("data/x.pdf", _settings(), sectors=[""]) is None
     assert client.scroll_calls == []
 
     lookup.sector_for_source("data/x.pdf", _settings(), sectors=["", "rh"])
@@ -93,9 +91,7 @@ def test_blank_sectors_are_dropped_before_the_filter(use_client):
 def test_an_unknown_source_is_none(use_client):
     use_client(StubClient(points=[]))
 
-    assert (
-        lookup.sector_for_source("data/nada.pdf", _settings(), sectors=None) is None
-    )
+    assert lookup.sector_for_source("data/nada.pdf", _settings(), sectors=None) is None
 
 
 def test_a_missing_collection_is_none_not_an_error(use_client):

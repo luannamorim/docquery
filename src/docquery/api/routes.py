@@ -34,7 +34,6 @@ from docquery.folders import normalize_segment
 from docquery.generate.contextualize import contextualize
 from docquery.generate.rag import query_pipeline, query_pipeline_stream
 from docquery.history.store import ConversationStore
-from docquery.retrieve.lookup import modified_for_sources, sector_for_source
 from docquery.ingest.pipeline import ingest_source
 from docquery.ingest.sources import (
     SourceError,
@@ -42,6 +41,7 @@ from docquery.ingest.sources import (
     source_scheme,
     validate_uri,
 )
+from docquery.retrieve.lookup import modified_for_sources, sector_for_source
 
 logger = logging.getLogger(__name__)
 
@@ -666,9 +666,7 @@ def report_document(
     if not created:
         # A repeat flag by the same caller updated the existing report.
         response.status_code = 200
-    return FeedbackReportResponse(
-        source=request.source, sector=sector, created=created
-    )
+    return FeedbackReportResponse(source=request.source, sector=sector, created=created)
 
 
 @router.get("/feedback", tags=["feedback"])

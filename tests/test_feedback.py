@@ -324,7 +324,10 @@ def test_a_token_with_no_sectors_reads_and_writes_nothing(client, private_key):
     store.report(CONTRATO, "financeiro", BRUNO)
 
     headers = _auth(private_key, roles=[])
-    assert api.post("/feedback", json={"source": CONTRATO}, headers=headers).status_code == 404
+    assert (
+        api.post("/feedback", json={"source": CONTRATO}, headers=headers).status_code
+        == 404
+    )
     assert api.get("/feedback", headers=headers).json() == {"documents": []}
 
 
@@ -423,7 +426,13 @@ def _pipeline_result(*sources):
     return {
         "answer": "ok [1]",
         "sources": [
-            {"index": i + 1, "source": s, "chunk_index": 0, "score": 1.0, "text": "trecho"}
+            {
+                "index": i + 1,
+                "source": s,
+                "chunk_index": 0,
+                "score": 1.0,
+                "text": "trecho",
+            }
             for i, s in enumerate(sources)
         ],
         "query": "q",
@@ -525,7 +534,9 @@ def test_the_stream_sources_frame_carries_the_flag(client, private_key, monkeypa
         }
 
     monkeypatch.setattr(routes, "query_pipeline_stream", _stream)
-    response = api.post("/query/stream", json={"query": "q"}, headers=_auth(private_key))
+    response = api.post(
+        "/query/stream", json={"query": "q"}, headers=_auth(private_key)
+    )
 
     assert response.status_code == 200
     frames = dict(
@@ -534,13 +545,19 @@ def test_the_stream_sources_frame_carries_the_flag(client, private_key, monkeypa
         for event, data in [
             (
                 next(
-                    (line[len("event: ") :] for line in block.splitlines()
-                     if line.startswith("event: ")),
+                    (
+                        line[len("event: ") :]
+                        for line in block.splitlines()
+                        if line.startswith("event: ")
+                    ),
                     "",
                 ),
                 next(
-                    (line[len("data: ") :] for line in block.splitlines()
-                     if line.startswith("data: ")),
+                    (
+                        line[len("data: ") :]
+                        for line in block.splitlines()
+                        if line.startswith("data: ")
+                    ),
                     "",
                 ),
             )
