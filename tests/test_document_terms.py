@@ -49,3 +49,12 @@ def test_the_indexed_terms_reach_the_sparse_vector():
     crk_only = sparse_vector("crk")
     assert crk_only[0][0] not in plain[0]
     assert crk_only[0][0] in enriched[0]
+
+
+def test_an_accented_file_name_yields_whole_folded_terms():
+    """The split on [^A-Za-z0-9] severed "Reemissão" at its own accent before
+    tokens() could fold it — the second half of the accent bug."""
+    terms = document_terms("financeiro/Reemissão_de_boleto.pdf", ["financeiro"])
+
+    assert "reemissao" in terms.split()
+    assert "reemiss" not in terms.split()

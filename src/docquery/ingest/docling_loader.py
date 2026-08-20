@@ -333,7 +333,10 @@ def _chunker(embedding_model: str) -> Any:
 
     Reusing the SentenceTransformer's own tokenizer and max_seq_length keeps
     chunk sizing consistent with what the embedder can actually encode, so
-    chunks are no longer silently truncated at the model's token limit.
+    chunks are no longer silently truncated at the model's token limit. A
+    model swap adjusts sizing automatically (the lru key is the model name);
+    the role prefixes embed_texts applies never enter here — this uses the
+    raw tokenizer, and a few tokens of headroom for "passage: " is noise.
     """
     from docling_core.transforms.chunker.hybrid_chunker import HybridChunker
     from docling_core.transforms.chunker.tokenizer.huggingface import (

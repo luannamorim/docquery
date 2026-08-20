@@ -34,6 +34,15 @@ class Document:
     # When present the chunker uses it to keep tables, headings and page
     # provenance; when None the legacy text-based chunking applies unchanged.
     dl_doc: object | None = None
+    # Highlight spans per page ({page: [EmphasisSpan]}), set only when
+    # EMPHASIS_EXTRACTION_ENABLED and the file is a PDF. Like dl_doc it lives
+    # beside metadata rather than in it: MetaValue cannot hold the structure,
+    # and the spans are attached to chunks (and only then to payloads) later.
+    emphasis: object | None = None
+    # OCR'd contents of red-boxed screenshot regions ({page: [str]}), set only
+    # when IMAGE_EMPHASIS_ENABLED and the file is a PDF. Same contract as
+    # emphasis above.
+    emphasis_screen: object | None = None
 
 
 def _parse_frontmatter(text: str) -> tuple[str, dict]:
@@ -166,6 +175,40 @@ def load_document(path: Path, settings: Settings | None = None) -> Document:
     # when the file records no date, so "unknown" never reads as a date.
     if modified_at := embedded_modified_at(path):
         doc.metadata["modified_at"] = modified_at
+    if settings.emphasis_extraction_enabled and path.suffix.lower() == ".pdf":
+        from docquery.ingest.emphasis import (
+            extract_emphasis,
+            promote_emphasis_headings,
+        )
+
+        try:
+            doc.emphasis = extract_emphasis(path) or None
+        except Exception:
+            logger.warning(
+                "Emphasis extraction failed on %s; ingesting without it",
+                path,
+                exc_info=True,
+            )
+        if doc.emphasis and doc.dl_doc is None:
+            # Legacy path only: on the Docling path dl_doc drives chunking, so
+            # rewriting content would be inert (see chunk_document) — headings
+            # there come from layout analysis instead.
+            doc.content, promoted = promote_emphasis_headings(doc.content, doc.emphasis)
+            if promoted:
+                # Same contract as _promote_headings in load_pdf: promoted
+                # headings make the document eligible for markdown chunking.
+                doc.metadata["file_type"] = ".md"
+    if settings.image_emphasis_enabled and path.suffix.lower() == ".pdf":
+        from docquery.ingest.image_emphasis import extract_screen_emphasis
+
+        try:
+            doc.emphasis_screen = extract_screen_emphasis(path, settings) or None
+        except Exception:
+            logger.warning(
+                "Screen-emphasis extraction failed on %s; ingesting without it",
+                path,
+                exc_info=True,
+            )
     return doc
 
 

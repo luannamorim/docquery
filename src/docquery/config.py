@@ -220,6 +220,30 @@ class Settings(BaseSettings):
     # only add noise.
     query_document_affinity_enabled: bool = True
 
+    # PII redaction at ingest and persistence. Opt-in like docling_enabled. CPF,
+    # CNPJ (numeric and alphanumeric), email and BR phone become typed
+    # placeholders ([CPF], ...) before anything is embedded, indexed, stored or
+    # logged. Replacement, never removal — a passage with a silent hole would
+    # still read as the document's own words. Proper names need NER and are out
+    # of scope. Enabling it changes chunk text and therefore point IDs: reingest.
+    pii_redaction_enabled: bool = False
+
+    # Emphasis extraction from PDF highlights. Opt-in like docling_enabled.
+    # Yellow/green fills (Word exports) and /Highlight annotations become
+    # extra lexical terms and chunk metadata; the stored passage stays exactly
+    # what the document says. On the legacy PDF path a full-line CAPS yellow
+    # highlight is promoted to a heading before chunking; on the Docling path
+    # headings come from layout analysis instead.
+    emphasis_extraction_enabled: bool = False
+
+    # Red-box regions inside screenshots, OCR'd into the lexical index.
+    # Opt-in like emphasis_extraction_enabled. Costs one OCR pass per red box
+    # per embedded image; results are lexical terms and metadata only, never
+    # cited text. Uses the RapidOCR weights the Docker image already
+    # prefetches and the language policy from docling_ocr_langs, but does not
+    # require docling_enabled — image extraction is pypdf and OCR is direct.
+    image_emphasis_enabled: bool = False
+
     @field_validator(
         "docling_artifacts_path", "gdrive_service_account_file", mode="before"
     )
@@ -235,6 +259,32 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @model_validator(mode="after")
+    def _check_embedding_dimension(self) -> "Settings":
+        """Fail fast when the dimension does not match a known model.
+
+        Qdrant accepts any vector of the declared collection size, so a
+        mismatch surfaces as silently broken search, not an error. Unknown
+        models pass — the table cannot know every model, and an unknown one
+        is the operator's responsibility.
+        """
+        known = {
+            "all-MiniLM-L6-v2": 384,
+            "sentence-transformers/all-MiniLM-L6-v2": 384,
+            "intfloat/multilingual-e5-small": 384,
+            "intfloat/multilingual-e5-base": 768,
+            "intfloat/multilingual-e5-large": 1024,
+            "BAAI/bge-m3": 1024,
+        }
+        expected = known.get(self.embedding_model)
+        if expected is not None and self.embedding_dimension != expected:
+            raise ValueError(
+                f"embedding_model {self.embedding_model!r} produces "
+                f"{expected}-dim vectors, not {self.embedding_dimension}; "
+                "recreate the collection after changing either"
+            )
+        return self
 
     @model_validator(mode="after")
     def _check_history_config(self) -> "Settings":

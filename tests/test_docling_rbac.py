@@ -38,6 +38,9 @@ PUBLIC_TAIL = "Afterwards, confirm the readiness probe reports a healthy status.
 def _settings(**overrides) -> Settings:
     defaults = {
         "qdrant_collection": COLLECTION,
+        # The dense side is faked at DIM dims, so the declared model is a fake
+        # too — a real model name with a wrong dimension fails at boot.
+        "embedding_model": "test/fake-embedder",
         "embedding_dimension": DIM,
         "retrieval_top_k": 10,
         "openai_api_key": "sk-test",

@@ -63,7 +63,7 @@ def retrieve(
     if settings.qdrant_collection not in existing:
         return []
 
-    dense_vec = embed_texts([query], settings=settings)[0].tolist()
+    dense_vec = embed_texts([query], settings=settings, role="query")[0].tolist()
     sparse_indices, sparse_values = sparse_vector(query)
 
     conditions: list[Condition] = []

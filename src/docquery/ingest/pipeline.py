@@ -22,12 +22,15 @@ from qdrant_client.models import (
 from docquery.config import Settings, get_settings
 from docquery.folders import folder_segments, sector_of
 from docquery.ingest.chunker import Chunk, chunk_document
+from docquery.ingest.emphasis import attach_emphasis
+from docquery.ingest.image_emphasis import attach_screen_emphasis
 from docquery.ingest.loader import (
     is_skippable_load_error,
     iter_ingestable_files,
     load_directory,
     load_document,
 )
+from docquery.ingest.redact import redact_chunks
 from docquery.ingest.sources import SourceError, fetch, source_scheme, validate_uri
 from docquery.ingest.sparse import document_terms, sparse_vector
 from docquery.retrieve.embedder import embed_texts
@@ -77,8 +80,13 @@ def ingest_chunks(
     if not chunks:
         return
 
+    # PII becomes typed placeholders here, at the only door to Qdrant, so no
+    # caller can upsert an unredacted chunk. Before embedding, sparse indexing,
+    # point-ID hashing and payload assembly — all four see the same text.
+    chunks = redact_chunks(chunks, settings)
+
     texts = [c.text for c in chunks]
-    dense_vectors = embed_texts(texts, settings=settings).tolist()
+    dense_vectors = embed_texts(texts, settings=settings, role="passage").tolist()
 
     # The document's name and folders join the lexical index but not the text.
     # Without them, most chunks of a contract carry nothing saying which
@@ -90,7 +98,15 @@ def ingest_chunks(
             str(chunk.metadata.get("source", "")),
             list(chunk.metadata.get("folders") or []),
         )
-        return terms + " " + chunk.text
+        # Highlighted spans join the same way: usually already in chunk.text,
+        # where the repeat doubles their TF — which is the boost — and on the
+        # legacy doc-level fallback they add terms the chunk may lack.
+        emphasis = [
+            str(e)
+            for key in ("emphasis", "emphasis_screen")
+            for e in (chunk.metadata.get(key) or [])
+        ]
+        return " ".join([terms, *emphasis, chunk.text])
 
     sparse_vectors = [sparse_vector(_lexical(c)) for c in chunks]
 
@@ -136,6 +152,11 @@ def ingest_chunks(
                 # never the ingest time, which is what mtime would have given.
                 "modified_at": chunk.metadata.get("modified_at", ""),
                 "tags": chunk.metadata.get("tags", []),
+                # What the author highlighted — metadata for review, never
+                # cited text: reranker._point_to_context deliberately does not
+                # read it (INV-1).
+                "emphasis": chunk.metadata.get("emphasis", []),
+                "emphasis_screen": chunk.metadata.get("emphasis_screen", []),
             },
         )
         for chunk, dense, (indices, values) in zip(
@@ -304,7 +325,15 @@ def _ingest_documents(
     """
     all_chunks: list[Chunk] = []
     for doc in docs:
-        all_chunks.extend(chunk_document(doc, settings=settings))
+        doc_chunks = chunk_document(doc, settings=settings)
+        if settings.emphasis_extraction_enabled:
+            # Highlight spans map to chunks only after chunking: Docling
+            # chunks carry the page_number the spans are keyed by, and the
+            # legacy path falls back to document-level attachment.
+            attach_emphasis(doc, doc_chunks)
+        if settings.image_emphasis_enabled:
+            attach_screen_emphasis(doc, doc_chunks)
+        all_chunks.extend(doc_chunks)
 
     sources_to_ingest = {doc.metadata.get("source", "") for doc in docs} - {""}
     warn_about_empty_documents(

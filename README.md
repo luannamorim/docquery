@@ -100,6 +100,12 @@ RapidOCR uses **one** language per run, so `DOCLING_OCR_LANGS` only honours its 
 docling-tools models download rapidocr --rapidocr-backend-lang torch:latin -o /opt/docling-models
 ```
 
+**Validating OCR for a screenshot-heavy corpus.** A manual exported from Word can hold most of its content inside embedded screenshots: the reference manual has 21 pages, ~7.100 chars of native text and 48 images. With `DOCLING_ENABLED=false` such a document indexes silently *half* — the "no text extracted" warning never fires because the document is not empty, only incomplete. Before trusting OCR on a new corpus:
+
+1. `make measure-ocr PDF=<reference manual>` — converts the PDF twice through the production Docling configuration, varying only `do_ocr`, and prints per-page char deltas plus sample accented lines that exist **only** with OCR. Inspect those samples: PP-OCRv6 covering PT diacritics is a claim, and this is where it gets checked. If accent coverage is poor, weigh swapping the prefetched checkpoint (see above) — a separate decision. Results land in `eval/results/ocr_coverage/summary.json`.
+2. Set `DOCLING_ENABLED=true` in that corpus's environment (the project default stays off) and re-ingest.
+3. Acceptance: `POST /query` for strings that exist only inside screenshots (e.g. a field label or a button caption from a print) must return the manual as a citation.
+
 ### Tables
 
 `DOCLING_TABLE_STRUCTURE=true` (default) runs TableFormer to recover the real row/column grid, and chunks render tables as **markdown** rather than Docling's default triplet linearization, so a citation stays readable.
@@ -132,6 +138,20 @@ Every chunk stays traceable to its origin. Three payload fields are new and **ad
 
 To backfill `page_number` on documents indexed earlier, simply re-ingest them — the pipeline deletes and rewrites chunks per source, so it is safe to repeat.
 
+### Highlights (emphasis)
+
+`EMPHASIS_EXTRACTION_ENABLED=true` reads what the author highlighted in a PDF and turns it into a retrieval signal — never into text. The operational manuals mark section titles and critical procedure values with **yellow** and states ("solucionado") with **green**; Word exports those as filled rectangles drawn behind the glyphs in the content stream, and Acrobat/Google Docs produce `/Highlight` annotations. `src/docquery/ingest/emphasis.py` (pdfplumber, imported lazily) reads both.
+
+What the spans become:
+
+- **Chunk metadata** — payload field `emphasis: list[str]`, mapped to chunks **by page** on the Docling path (`page_number`) and to every chunk of the document on the legacy path, where `load_pdf` joins pages before chunking and provenance is gone (degraded but honest; bbox-level refinement is a TODO).
+- **Lexical terms** — injected into the sparse index through the same mechanism as `document_terms`. The stored passage, the citation and what the model sees stay exactly what the document says.
+- **Headings (legacy path only)** — a full-line CAPS yellow highlight (or one whose glyphs run ≥ 1.3× the page average) is promoted to a `## ` heading before chunking; the manuals title their sections with highlights, not with `Passo N:` patterns. On the Docling path this is inert by design — `dl_doc` drives chunking and headings come from layout analysis.
+
+PII redaction (when enabled) runs later, at the upsert seam, and covers the `emphasis` list too — a highlight over a CPF reaches the payload as `[CPF]`.
+
+**Red boxes inside screenshots** (`IMAGE_EMPHASIS_ENABLED=true`) are the raster half of the same idea: the manuals mark which field or button a step refers to by burning red rectangles into their screenshots, invisible to the vector layer. `src/docquery/ingest/image_emphasis.py` pulls each embedded image out with pypdf, masks red at both hue ends of HSV (red wraps around the hue axis), takes external contours over a size floor, and OCRs the inner crop (border excluded, 2× upscale) with **the same RapidOCR engine Docling uses** — same language policy (`DOCLING_OCR_LANGS`), same prefetched weights (`DOCLING_ARTIFACTS_PATH`). Results land in `emphasis_screen` metadata and the lexical index, never in cited text, and PII redaction covers them. Costs one OCR pass per red box per image. Arrows and 1/2/3 numbering point at their targets rather than enclosing them — only a VLM could resolve those, and they stay out of scope until measurement shows the gap matters.
+
 ### Configuration
 
 | Variable | Default | Meaning |
@@ -144,6 +164,8 @@ To backfill `page_number` on documents indexed earlier, simply re-ingest them �
 | `DOCLING_MAX_PAGES` | `200` | Page cap per document |
 | `DOCLING_TIMEOUT_SECONDS` | `300` | Per-document conversion timeout |
 | `DOCLING_ARTIFACTS_PATH` | unset | Local model weights; set to `/opt/docling-models` in the image |
+| `EMPHASIS_EXTRACTION_ENABLED` | `false` | Yellow/green PDF highlights → lexical terms + `emphasis` metadata (both parsing paths) |
+| `IMAGE_EMPHASIS_ENABLED` | `false` | Red boxes inside screenshots → OCR → lexical terms + `emphasis_screen` metadata |
 
 ### CPU, GPU and models
 
@@ -179,6 +201,29 @@ DOCQUERY_DOCLING_INTEGRATION=1 uv run pytest -m docling
 ```
 
 Fixtures live in `tests/fixtures/` and are synthetic; regenerate them with `uv run python tests/fixtures/generate.py`.
+
+## Corpus em português
+
+The default models are English-trained: `all-MiniLM-L6-v2` never saw Portuguese as more than noise, and `ms-marco-MiniLM-L-6-v2` was tuned on English MS MARCO. They work — hybrid retrieval leans on BM25, which is language-agnostic now that tokens are accent-folded — but semantic recall on a PT corpus is measurably worse. For a Portuguese corpus, the recommended pair (set via `.env`, defaults unchanged):
+
+| Setting | Recommended | Note |
+|---------|-------------|------|
+| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-base` | 768 dims, 512-token window (Docling chunk sizing follows automatically) |
+| `EMBEDDING_DIMENSION` | `768` | validated against the model at boot |
+| `RERANKER_MODEL` | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | mMARCO includes PT; emits logits like the default |
+
+The e5 family is trained with asymmetric `query:`/`passage:` markers. The embedder applies them itself, conditioned on the model name — callers state a role, never a prefix — so the two sides of the search cannot desynchronize. `ANSWER_LANGUAGE=pt-BR` pins answers to Portuguese regardless of the question's language, if a deployment wants that.
+
+**Migration — both of these require a full re-ingest:**
+
+- **Accent folding (BM25):** an index built before the fold holds token fragments (`quita`, `o`) that queries no longer produce.
+- **Embedder swap:** 768-dim vectors live in a different space and a different-size collection — delete/recreate the collection, then re-ingest. `eval/results/baseline.json` records model ids; regenerate it (and re-measure `RERANKER_SCORE_THRESHOLD` — `-5.0` is calibrated to ms-marco logits) before trusting any before/after comparison.
+
+First start with the PT pair downloads ~1.1GB into the `hf_cache` volume (the ~90MB figure elsewhere is for the default pair). The end-to-end PT retrieval test is opt-in, like the Docling and MySQL suites:
+
+```bash
+DOCQUERY_MULTILINGUAL_E2E=1 uv run pytest -m multilingual
+```
 
 ## Quickstart
 
@@ -230,6 +275,7 @@ make serve
 | RBAC           | JWT decode, header, body field        | **Sector derived from the tree + Entra ID app roles**           | The compartment is derived server-side from the path (frontmatter ignored); the grant comes from a verified `roles` claim, falling back to the `X-User-Sectors` header only when `AUTH_ENABLED=false` |
 | Auth           | Custom JWT, Authlib, python-jose, PyJWT | **PyJWT + `PyJWKClient`**                                     | Smallest dependency that validates properly: JWKS caching and key-rotation refetch are built in, `cryptography` comes with it for RS256. python-jose is unmaintained; Authlib ships an OAuth client the API never needs |
 | Injection guard | Llama Guard, NeMo Guardrails, custom | **NFKC-normalized regex validator (guard.py)**                  | Zero latency, zero dependencies, covers OWASP LLM01/LLM06 patterns in EN + PT-BR/ES, NFKC handles fullwidth-Latin evasions; second layer is hardened system prompt; third is `check_context()` over retrieved chunks |
+| PT models      | Swap defaults, document opt-in pair   | **Defaults unchanged; e5-base + mmarco recommended via `.env`** | Changing defaults forces a reindex on every existing install and invalidates the eval baseline; the code carries full e5 prefix support so the opt-in is one env change, measured before adoption |
 
 ## Evaluation Results
 
@@ -581,6 +627,23 @@ python eval/security/injection_suite.py
 ```
 
 The suite covers **47 attacks** across OWASP LLM Top 10 categories — 36 expected-block (direct injection, role injection, prompt leak, jailbreak, structural, PT-BR + NFKC evasions) and 11 benign/borderline — and targets **≥ 95% block rate** (currently 100%).
+
+## Documentos com PII
+
+Operational manuals exported from real systems carry real customer data — CPF, CNPJ, e-mail, phone — in native text and inside screenshots that OCR recovers. Whatever reaches the Qdrant payload comes back out in citations to every user of the sector, and whatever reaches the conversation store persists in MySQL. That is personal data under the LGPD, and this corpus is not the place to hold it.
+
+`PII_REDACTION_ENABLED=true` rewrites detected PII into stable typed placeholders **before anything persists** — before embedding, before the sparse index, before the Qdrant payload, and before a question or answer is written to conversation history. Replacement, never removal: a passage with a silent hole would still read as the document's own words, so a citation stays legible (`o cliente [CPF] solicitou...`).
+
+| Detected | Placeholder | Validation |
+|----------|-------------|------------|
+| CPF (formatted or bare 11 digits) | `[CPF]` | check digits; repeated-digit CPFs rejected |
+| CNPJ (numeric, and the alphanumeric format in punctuated form) | `[CNPJ]` | check digits over the Receita's `ord(c) - 48` rule |
+| E-mail | `[EMAIL]` | — |
+| Phone (BR: `+55`, `(DDD)`, hyphenated) | `[TELEFONE]` | ANATEL shape rules; year ranges (`2020-2024`) and dates never match |
+
+Every detector validates its match because the corpus is full of near-misses: a 9–12 digit contract number is **not** a CPF, and redacting it would be a silent retrieval loss. False negatives beat false positives — a bare unpunctuated 10–11 digit run is deliberately not treated as a phone.
+
+The flag is **off by default** so the quickstart and the eval baseline stay reproducible. **Any corpus with customer data requires it on before production.** Enabling it changes chunk text and therefore point IDs, so re-ingest the corpus after flipping it. Proper names (`João da Silva`) need NER, which regex cannot do — a documented TODO, out of scope until measured separately.
 
 ## API Reference
 
