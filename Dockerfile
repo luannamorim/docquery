@@ -48,8 +48,35 @@ RUN uv sync --no-dev --no-install-project
 # layer depends on nothing but pyproject.toml/uv.lock. Below the COPY, every
 # edit to a single Python file would invalidate it and re-download hundreds of
 # megabytes of weights — which is exactly what it used to do.
-RUN /app/.venv/bin/docling-tools models download \
-    -o /opt/docling-models layout tableformer rapidocr
+
+# Force the classic CDN download path instead of HuggingFace's Xet protocol.
+# NOT for the reason docker-compose.yml disables it (proxies): measured on an
+# unfiltered connection, Xet is the faster of the two (4.9 MB/s against
+# 2.8 MB/s) right up until it deadlocks. It fetches the first ~164MB, then its
+# connections to the CAS backend go silent while still ESTABLISHED, and nothing
+# breaks the impasse: hf_xet has no read timeout of its own and TCP keepalive
+# only notices after two hours. That is what turned this step into 45 minutes of
+# dead air. The classic path stalls too, but huggingface_hub retries and resumes
+# it — slower at peak, and it finishes.
+ENV HF_HUB_DISABLE_XET=1
+
+# Retried, because one leg of this download is not HuggingFace at all. Every
+# RapidOCR weight URL is hardcoded to www.modelscope.cn in rapidocr's
+# default_models.yaml (SHA256-pinned, so there is no mirror to swap in), and
+# from here that CDN stalls. docling's download_url_with_progress hardcodes
+# timeout=(5, 30) with no retry, and buffers into a BytesIO — so a stall past
+# 30s discards the partial file and the next attempt restarts it from zero.
+# What makes retrying work is file-level idempotency: download_models skips a
+# dest that already exists, so each attempt only re-fetches what is still
+# missing and the loop converges instead of starting over.
+RUN ok=; \
+    for attempt in 1 2 3 4 5; do \
+        if /app/.venv/bin/docling-tools models download \
+                -o /opt/docling-models layout tableformer rapidocr; then ok=1; break; fi; \
+        echo "docling models download: attempt $attempt failed; keeping what landed, retrying"; \
+        sleep 5; \
+    done; \
+    [ -n "$ok" ]
 
 COPY src/ src/
 RUN uv sync --no-dev
