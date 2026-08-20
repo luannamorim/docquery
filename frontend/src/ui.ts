@@ -194,7 +194,9 @@ function updatedLabel(modifiedAt: string): string {
   if (!modifiedAt) return "data desconhecida";
   const when = new Date(modifiedAt);
   if (Number.isNaN(when.getTime())) return "data desconhecida";
-  return `atualizado ${when.toLocaleDateString()}`;
+  // A date, not a verdict: "atualizado" read as a claim of freshness, which
+  // sat in contradiction beside a document flagged as outdated.
+  return `atualização: ${when.toLocaleDateString()}`;
 }
 
 /** What flagging a document does; undefined means the feature is off. */
@@ -315,7 +317,7 @@ function sourceCard(source: Source, onReport?: ReportHandler): HTMLElement {
   }
   const updated = el("span", "source-date", ` · ${updatedLabel(source.modified_at)}`);
   updated.title = source.modified_at
-    ? `atualizado em ${source.modified_at}`
+    ? `data de atualização: ${source.modified_at}`
     : "nenhuma fonte registra quando este documento foi atualizado";
   body.append(updated);
   const detail = el("span", "source-text");
