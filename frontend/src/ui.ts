@@ -723,15 +723,45 @@ export function reviewPanel(
     const resolve = el("button", "review-resolve", "Resolver");
     resolve.type = "button";
     resolve.title = "O documento foi revisado — apaga as sinalizações";
+    // Resolving erases everyone's reports at once, so it asks first — the
+    // same inline form the flag uses, never a browser dialog.
+    let confirmBox: HTMLElement | null = null;
     resolve.addEventListener("click", () => {
-      resolve.disabled = true;
-      onResolve(doc.source)
-        .then(() => item.remove())
-        .catch((error: Error) => {
-          resolve.disabled = false;
-          item.querySelector(".error")?.remove();
-          item.append(el("div", "error", error.message));
-        });
+      if (confirmBox) {
+        confirmBox.remove();
+        confirmBox = null;
+        return;
+      }
+      confirmBox = el("div", "flag-form");
+      confirmBox.append(
+        el(
+          "span",
+          undefined,
+          "Apaga as sinalizações de todos que reportaram este documento.",
+        ),
+      );
+      const confirm = el("button", "flag-confirm", "Confirmar");
+      confirm.type = "button";
+      const cancel = el("button", "flag-cancel", "Cancelar");
+      cancel.type = "button";
+      confirmBox.append(confirm, cancel);
+      head.insertAdjacentElement("afterend", confirmBox);
+      confirm.focus();
+
+      cancel.addEventListener("click", () => {
+        confirmBox?.remove();
+        confirmBox = null;
+      });
+      confirm.addEventListener("click", () => {
+        confirm.disabled = true;
+        onResolve(doc.source)
+          .then(() => item.remove())
+          .catch((error: Error) => {
+            confirm.disabled = false;
+            item.querySelector(".error")?.remove();
+            item.append(el("div", "error", error.message));
+          });
+      });
     });
     head.append(resolve);
     item.append(head);

@@ -969,6 +969,11 @@ button {
   color: var(--ink);
 }
 
+/* The resolve confirmation reuses the flag form, but the card already pads. */
+.review-item .flag-form {
+  padding: 0.5rem 0 0;
+}
+
 .empty h1 {
   font-size: 1.6rem;
   font-weight: 650;
