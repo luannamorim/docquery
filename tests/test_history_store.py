@@ -14,6 +14,7 @@ Enable with a throwaway server, e.g.:
 """
 
 import os
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -129,3 +130,20 @@ def test_citations_survive_the_round_trip(store):
     store.append(cid, owner=ANA, question="p", answer="r", citations=citations)
 
     assert store.turns(cid, owner=ANA)[0]["citations"] == citations
+
+
+def test_timestamps_come_back_timezone_aware_in_utc(store):
+    """pymysql hands back naive datetimes in the session time zone. Naive
+    survives Pydantic as an offset-less ISO string, which the browser then
+    reparses as *its* local time — so the store must pin the session to UTC
+    and return aware datetimes for the offset to reach the JSON."""
+    before = datetime.now(UTC) - timedelta(seconds=1)
+    cid = store.create(owner=ANA)
+    store.append(cid, owner=ANA, question="p", answer="r")
+    after = datetime.now(UTC) + timedelta(seconds=1)
+
+    convo = store.list_conversations(owner=ANA)[0]
+    turn = store.turns(cid, owner=ANA)[0]
+    for stamp in (convo["created_at"], convo["last_turn_at"], turn["created_at"]):
+        assert stamp.tzinfo is not None
+        assert before <= stamp <= after

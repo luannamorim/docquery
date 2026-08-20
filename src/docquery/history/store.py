@@ -15,12 +15,30 @@ guessing.
 
 import json
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import pymysql
+from pymysql.constants import FIELD_TYPE
+from pymysql.converters import conversions, convert_datetime
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+
+
+def _utc_datetime(value):
+    """Decode a DATETIME/TIMESTAMP column as an aware UTC datetime.
+
+    pymysql hands back naive datetimes in whatever time zone the session runs
+    in. Naive survives Pydantic as an offset-less ISO string, which the browser
+    then reparses as *its* local time — every timestamp shifts by the viewer's
+    UTC offset. The session is pinned to UTC below, so attaching the tzinfo
+    here is a statement of fact, and the offset reaches the JSON.
+    """
+    parsed = convert_datetime(value)
+    if isinstance(parsed, datetime):
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def _dsn_to_kwargs(dsn: str) -> dict:
@@ -39,6 +57,14 @@ def _dsn_to_kwargs(dsn: str) -> dict:
         "database": database,
         "charset": "utf8mb4",
         "autocommit": True,
+        # Pinned so CURRENT_TIMESTAMP writes and reads mean the same instant
+        # regardless of the container's or the server's local time zone.
+        "init_command": "SET time_zone = '+00:00'",
+        "conv": {
+            **conversions,
+            FIELD_TYPE.DATETIME: _utc_datetime,
+            FIELD_TYPE.TIMESTAMP: _utc_datetime,
+        },
     }
 
 

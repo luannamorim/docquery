@@ -14,6 +14,7 @@ Enable with the same throwaway server as test_history_store.py:
 """
 
 import os
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -149,6 +150,21 @@ def test_resolving_clears_the_reported_bit(store):
     store.resolve(CONTRATO, sectors=["financeiro"])
 
     assert store.reported([CONTRATO], sectors=None) == set()
+
+
+def test_timestamps_come_back_timezone_aware_in_utc(store):
+    """pymysql hands back naive datetimes in the session time zone. Naive
+    survives Pydantic as an offset-less ISO string, which the browser then
+    reparses as *its* local time — so the store must pin the session to UTC
+    and return aware datetimes for the offset to reach the JSON."""
+    before = datetime.now(UTC) - timedelta(seconds=1)
+    store.report(CONTRATO, "financeiro", ANA, "valores de 2023")
+    after = datetime.now(UTC) + timedelta(seconds=1)
+
+    doc = store.list_reports(sectors=None)[0]
+    for stamp in (doc["last_reported_at"], doc["comments"][0]["reported_at"]):
+        assert stamp.tzinfo is not None
+        assert before <= stamp <= after
 
 
 def test_a_long_remote_uri_survives_the_round_trip(store):
