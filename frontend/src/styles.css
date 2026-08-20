@@ -943,16 +943,6 @@ button {
   color: var(--ink-soft);
 }
 
-/* The identity, selectable: what a reviewer pastes back. */
-.review-source {
-  margin-top: 0.2rem;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--ink-soft);
-  word-break: break-all;
-  user-select: all;
-}
-
 .review-comments {
   margin: 0.5rem 0 0;
   padding-left: 1.1rem;

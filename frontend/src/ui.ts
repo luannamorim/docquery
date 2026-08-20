@@ -724,10 +724,6 @@ export function reviewPanel(
         }${last ? ` · última em ${last}` : ""}`,
       ),
     );
-    // The identity, selectable like .source-full: the reviewer's next step is
-    // pasting it into a re-ingest or a scoped query.
-    item.append(el("div", "review-source", doc.source));
-
     if (doc.comments.length) {
       const list = el("ul", "review-comments");
       for (const comment of doc.comments) {
