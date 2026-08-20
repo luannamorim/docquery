@@ -10,7 +10,9 @@ is deduplicated by the token's oid and read back by sector, so every test here
 runs with auth on.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import jwt
 import pytest
@@ -85,6 +87,17 @@ class InMemoryFeedbackStore:
         ]
         docs.sort(key=lambda d: d.pop("_at"), reverse=True)
         return docs[:limit]
+
+    def reported(self, sources, sectors) -> set:
+        sectors = None if sectors is None else [s for s in sectors if s]
+        if not sources or (sectors is not None and not sectors):
+            return set()
+        hashes = {source_hash(s): s for s in sources}
+        return {
+            hashes[key[0]]
+            for key, row in self.rows.items()
+            if key[0] in hashes and (sectors is None or row["sector"] in sectors)
+        }
 
     def resolve(self, source, sectors) -> bool:
         sectors = None if sectors is None else [s for s in sectors if s]
@@ -337,3 +350,145 @@ def test_config_tells_the_browser_whether_feedback_is_on(client):
     api, _ = client
 
     assert api.get("/config").json()["feedbackEnabled"] is True
+
+
+# --- The flag on query sources ----------------------------------------------
+#
+# A report used to be invisible outside the review list; now every asker sees
+# it as a `flagged` bit on the sources of a query answer — existence only,
+# comments stay in /feedback. These drive the two query endpoints with the
+# pipeline patched, the same way test_api.py does.
+
+TABELA = "data/financeiro/tabela_precos.md"
+
+
+def _pipeline_result(*sources):
+    return {
+        "answer": "ok [1]",
+        "sources": [
+            {"index": i + 1, "source": s, "chunk_index": 0, "score": 1.0, "text": "trecho"}
+            for i, s in enumerate(sources)
+        ],
+        "query": "q",
+        "model": "gpt-4o-mini",
+    }
+
+
+def test_query_sources_carry_the_flag_of_an_open_report(client, private_key):
+    api, store = client
+    store.report(CONTRATO, "financeiro", BRUNO, "valores de 2023")
+
+    with patch(
+        "docquery.api.routes.query_pipeline",
+        return_value=_pipeline_result(CONTRATO, TABELA),
+    ):
+        response = api.post("/query", json={"query": "q"}, headers=_auth(private_key))
+
+    assert response.status_code == 200
+    flags = {s["source"]: s["flagged"] for s in response.json()["sources"]}
+    assert flags == {CONTRATO: True, TABELA: False}
+
+
+def test_the_flag_honours_the_callers_sectors(client, private_key):
+    """A report in a sector the caller cannot read is indistinguishable from
+    no report — the flag must not leak across compartments."""
+    api, store = client
+    store.report(CONTRATO, "financeiro", BRUNO)
+
+    with patch(
+        "docquery.api.routes.query_pipeline",
+        return_value=_pipeline_result(CONTRATO),
+    ):
+        response = api.post(
+            "/query",
+            json={"query": "q"},
+            headers=_auth(private_key, roles=["sector.rh"]),
+        )
+
+    assert response.json()["sources"][0]["flagged"] is False
+
+
+def test_feedback_off_leaves_sources_unflagged(signing_key, private_key, monkeypatch):
+    from docquery.api.routes import get_feedback_store
+
+    app.dependency_overrides[get_settings] = lambda: _settings(feedback_enabled=False)
+    app.dependency_overrides[get_feedback_store] = lambda: None
+    try:
+        api = TestClient(app)
+        with patch(
+            "docquery.api.routes.query_pipeline",
+            return_value=_pipeline_result(CONTRATO),
+        ):
+            response = api.post(
+                "/query", json={"query": "q"}, headers=_auth(private_key)
+            )
+        assert response.status_code == 200
+        assert response.json()["sources"][0]["flagged"] is False
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_a_failing_feedback_lookup_does_not_break_the_query(client, private_key):
+    """Answering questions must not depend on the feedback database: a lookup
+    failure degrades to unflagged sources, never to a 500."""
+    api, _ = client
+
+    class ExplodingStore(InMemoryFeedbackStore):
+        def reported(self, sources, sectors):
+            raise RuntimeError("mysql is down")
+
+    from docquery.api.routes import get_feedback_store
+
+    app.dependency_overrides[get_feedback_store] = lambda: ExplodingStore()
+    with patch(
+        "docquery.api.routes.query_pipeline",
+        return_value=_pipeline_result(CONTRATO),
+    ):
+        response = api.post("/query", json={"query": "q"}, headers=_auth(private_key))
+
+    assert response.status_code == 200
+    assert response.json()["sources"][0]["flagged"] is False
+
+
+def test_the_stream_sources_frame_carries_the_flag(client, private_key, monkeypatch):
+    api, store = client
+    store.report(CONTRATO, "financeiro", BRUNO)
+
+    def _stream(query, settings=None, **kwargs):
+        yield {"type": "sources", "sources": _pipeline_result(CONTRATO)["sources"]}
+        yield {"type": "token", "text": "ok"}
+        yield {
+            "type": "done",
+            "answer": "ok",
+            "query": query,
+            "model": "gpt-4o-mini",
+            "tokens_in": 1,
+            "tokens_out": 1,
+            "cost_usd": 0.0,
+        }
+
+    monkeypatch.setattr(routes, "query_pipeline_stream", _stream)
+    response = api.post("/query/stream", json={"query": "q"}, headers=_auth(private_key))
+
+    assert response.status_code == 200
+    frames = dict(
+        (event, data)
+        for block in response.text.strip().split("\n\n")
+        for event, data in [
+            (
+                next(
+                    (line[len("event: ") :] for line in block.splitlines()
+                     if line.startswith("event: ")),
+                    "",
+                ),
+                next(
+                    (line[len("data: ") :] for line in block.splitlines()
+                     if line.startswith("data: ")),
+                    "",
+                ),
+            )
+        ]
+        if event
+    )
+    sources = json.loads(frames["sources"])["sources"]
+    assert sources[0]["flagged"] is True

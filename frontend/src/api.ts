@@ -15,6 +15,9 @@ export type Source = {
   section: string;
   folders: string[];
   modified_at: string;
+  /** An open outdated report exists for this document — existence only,
+   * comments stay in the review list. Absent/false when feedback is off. */
+  flagged?: boolean;
 };
 
 export type Turn = {

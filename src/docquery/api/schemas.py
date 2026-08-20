@@ -97,6 +97,14 @@ class Source(BaseModel):
             "neither records one — never the ingest or download time"
         ),
     )
+    flagged: bool = Field(
+        default=False,
+        description=(
+            "True when an open outdated-document report exists for this source "
+            "within the caller's sectors. Existence only — comments and counts "
+            "live in GET /feedback. Always false when feedback is disabled"
+        ),
+    )
 
 
 class QueryResponse(BaseModel):

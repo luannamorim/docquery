@@ -128,6 +128,28 @@ class FeedbackStore:
                 del row["source_hash"]
         return rows
 
+    def reported(self, sources: list[str], sectors: list[str] | None) -> set[str]:
+        """Which of these sources have an open report the caller may see.
+
+        Existence only — comments and counts stay in list_reports. The sector
+        predicate is the same one every read applies: a report whose sector the
+        caller cannot read is indistinguishable from no report at all.
+        """
+        sectors = _clean(sectors)
+        if not sources or (sectors is not None and not sectors):
+            return set()
+        by_hash = {source_hash(s): s for s in sources}
+        placeholders = ", ".join(["%s"] * len(by_hash))
+        predicate, params = self._sector_predicate(sectors)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT DISTINCT source_hash FROM document_reports "
+                f"WHERE source_hash IN ({placeholders}) "
+                f"{predicate.replace('WHERE', 'AND', 1)}",
+                (*by_hash.keys(), *params),
+            )
+            return {by_hash[row["source_hash"]] for row in cur.fetchall()}
+
     def resolve(self, source: str, sectors: list[str] | None) -> bool:
         """Erase every report for the source within the caller's sectors.
 

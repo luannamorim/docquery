@@ -117,6 +117,34 @@ def test_resolving_from_outside_the_sector_touches_nothing(store):
     assert len(store.list_reports(sectors=None)) == 1
 
 
+def test_reported_names_the_sources_with_open_reports(store):
+    store.report(CONTRATO, "financeiro", ANA, "valores de 2023")
+
+    assert store.reported([CONTRATO, FERIAS], sectors=None) == {CONTRATO}
+
+
+def test_reported_is_scoped_by_the_callers_sectors(store):
+    """A report whose sector the caller cannot read is indistinguishable from
+    no report — the same compartment rule list_reports follows."""
+    store.report(CONTRATO, "financeiro", ANA)
+
+    assert store.reported([CONTRATO], sectors=["rh"]) == set()
+    assert store.reported([CONTRATO], sectors=["financeiro"]) == {CONTRATO}
+    assert store.reported([CONTRATO], sectors=[]) == set()
+    assert store.reported([CONTRATO], sectors=[""]) == set()
+
+
+def test_reported_with_no_sources_never_touches_the_database(store):
+    assert store.reported([], sectors=None) == set()
+
+
+def test_resolving_clears_the_reported_bit(store):
+    store.report(CONTRATO, "financeiro", ANA)
+    store.resolve(CONTRATO, sectors=["financeiro"])
+
+    assert store.reported([CONTRATO], sectors=None) == set()
+
+
 def test_a_long_remote_uri_survives_the_round_trip(store):
     """Remote sources are URIs that outgrow any indexable VARCHAR — identity
     is the hash, but the display column must give the full string back."""

@@ -200,6 +200,30 @@ function updatedLabel(modifiedAt: string): string {
 /** What flagging a document does; undefined means the feature is off. */
 export type ReportHandler = (source: string, comment: string) => Promise<void>;
 
+/** The red state a flag shows once its document has an open report. */
+function paintFlagged(flag: HTMLButtonElement): void {
+  flag.dataset.flagged = "true";
+  flag.title = "Sinalizado como desatualizado";
+  flag.setAttribute("aria-label", "Sinalizado como desatualizado");
+}
+
+/**
+ * A report covers the document, not the passage: once this asker reports one
+ * card, every card of the same source on screen shows the red flag and stops
+ * offering to report again. The next answer gets the same truth from the
+ * server (`source.flagged`), so nothing here needs to persist.
+ */
+function markReported(source: string): void {
+  document
+    .querySelectorAll<HTMLButtonElement>("button.source-flag")
+    .forEach((flag) => {
+      if (flag.dataset.source === source) {
+        paintFlagged(flag);
+        flag.disabled = true;
+      }
+    });
+}
+
 /**
  * The flag affordance beside a source card.
  *
@@ -210,9 +234,16 @@ export type ReportHandler = (source: string, comment: string) => Promise<void>;
 function flagButton(source: Source, row: HTMLElement, onReport: ReportHandler): HTMLElement {
   const flag = el("button", "source-flag");
   flag.type = "button";
+  flag.dataset.source = source.source;
   flag.title = "Sinalizar como desatualizado";
   flag.setAttribute("aria-label", "Sinalizar como desatualizado");
   flag.append(flagIcon());
+  if (source.flagged) {
+    // Someone already reported this document. The flag shows it in red but
+    // stays clickable: a report is per person, and another asker's report
+    // must not stop this one from adding their own comment.
+    paintFlagged(flag);
+  }
 
   let form: HTMLElement | null = null;
   flag.addEventListener("click", () => {
@@ -246,8 +277,7 @@ function flagButton(source: Source, row: HTMLElement, onReport: ReportHandler): 
           form?.remove();
           form = null;
           row.append(el("div", "flag-done", "Sinalizado para revisão."));
-          flag.dataset.flagged = "true";
-          flag.disabled = true;
+          markReported(source.source);
         })
         .catch((error: Error) => {
           confirm.disabled = false;

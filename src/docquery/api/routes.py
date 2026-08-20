@@ -343,6 +343,28 @@ def _resolve_follow_up(
     return resolved, resolved != query
 
 
+def _flag_reported(
+    sources: list[dict], feedback: "FeedbackStore | None", sectors: list[str] | None
+) -> None:
+    """Mark each source that carries an open outdated report the caller may see.
+
+    Existence only — comments and counts stay in GET /feedback. The caller's
+    sectors bound the lookup the same way they bound every other feedback read,
+    so a report in a compartment the token does not grant stays invisible.
+    Answering questions must not depend on the feedback database: a failed
+    lookup logs and the sources go out unflagged, never a 500.
+    """
+    if feedback is None or not sources:
+        return
+    try:
+        open_reports = feedback.reported([s["source"] for s in sources], sectors)
+    except Exception:
+        logger.warning("Feedback lookup failed; sources go out unflagged")
+        return
+    for s in sources:
+        s["flagged"] = s["source"] in open_reports
+
+
 @router.post("/query", tags=["query"])
 def query(
     request: QueryRequest,
@@ -350,6 +372,7 @@ def query(
     sectors: SectorsDep,
     store: StoreDep,
     owner: OwnerDep,
+    feedback: FeedbackStoreDep,
 ) -> QueryResponse:
     blocked, reason = check_input(request.query)
     if blocked:
@@ -387,6 +410,7 @@ def query(
     )
     # The caller asked their question, not our rewrite of it.
     result["query"] = request.query
+    _flag_reported(result["sources"], feedback, sectors)
 
     if history_on:
         if conversation_id is None:
@@ -437,6 +461,7 @@ def query_stream(
     sectors: SectorsDep,
     store: StoreDep,
     owner: OwnerDep,
+    feedback: FeedbackStoreDep,
 ) -> StreamingResponse:
     """The same answer as POST /query, delivered as it is produced.
 
@@ -487,6 +512,7 @@ def query_stream(
                 kind = event["type"]
                 if kind == "sources":
                     sources = event["sources"]
+                    _flag_reported(sources, feedback, sectors)
                     yield _sse("sources", {"sources": sources})
                 elif kind == "token":
                     answer += event["text"]
