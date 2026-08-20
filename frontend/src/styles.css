@@ -350,10 +350,13 @@ button {
 
 /* The door to the review list, above the user footer. Quiet like a
  * conversation row: reviewing is an occasional task, not the main one. */
-/* The line between "your conversations" and "the team's review work". */
+/* The line between "your conversations" and "the team's review work".
+   No bottom margin: the rail's gap plus the button's own padding already
+   give 0.75rem, the same air the button has above the footer's rule —
+   anything more and the button sits off-centre between the two lines. */
 .rail-divider {
   border-top: 1px solid var(--rule);
-  margin: 0.5rem 0.25rem 0.25rem;
+  margin: 0.5rem 0.25rem 0;
 }
 
 .rail-review {
