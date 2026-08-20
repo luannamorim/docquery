@@ -304,9 +304,8 @@ function sourceCard(source: Source, onReport?: ReportHandler): HTMLElement {
 
   // The file name is what a reader recognises; the folders above it are already
   // said by the coloured sector tab. The full path stays the document's
-  // identity, though — it distinguishes two files of the same name and it is
-  // what you paste back to scope a follow-up — so it is one hover or one click
-  // away rather than gone.
+  // identity, though — it distinguishes two files of the same name — so it
+  // survives as the card's hover title rather than gone.
   const name = source.source.split("/").pop() || source.source;
   card.title = source.source;
 
@@ -321,7 +320,6 @@ function sourceCard(source: Source, onReport?: ReportHandler): HTMLElement {
     : "nenhuma fonte registra quando este documento foi atualizado";
   body.append(updated);
   const detail = el("span", "source-text");
-  detail.append(el("span", "source-full", source.source));
   detail.append(document.createTextNode(source.text));
   body.append(detail);
 

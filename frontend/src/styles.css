@@ -684,18 +684,6 @@ button {
   font-size: 0.78rem;
 }
 
-/* The full path, shown only with the passage it identifies. Selectable, since
- * the reason to want it is to paste it back as a source filter. */
-.source-full {
-  display: block;
-  margin-bottom: 0.4rem;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  color: var(--ink-soft);
-  word-break: break-all;
-  user-select: all;
-}
-
 .source-text {
   display: none;
   margin-top: 0.5rem;
@@ -946,7 +934,7 @@ button {
   color: var(--ink-soft);
 }
 
-/* The identity, selectable like .source-full: what a reviewer pastes back. */
+/* The identity, selectable: what a reviewer pastes back. */
 .review-source {
   margin-top: 0.2rem;
   font-family: var(--mono);
