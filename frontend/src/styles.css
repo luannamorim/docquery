@@ -969,9 +969,45 @@ button {
   color: var(--ink);
 }
 
-/* The resolve confirmation reuses the flag form, but the card already pads. */
-.review-item .flag-form {
-  padding: 0.5rem 0 0;
+/* The resolve confirmation: a real modal, in the app's own clothes. */
+.confirm-dialog {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 1.1rem 1.25rem;
+  max-width: 24rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.confirm-dialog::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.confirm-dialog button {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  padding: 0.35rem 0.8rem;
+}
+
+.confirm-dialog .confirm-yes {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.confirm-dialog button:hover {
+  background: var(--deep-soft);
 }
 
 .empty h1 {

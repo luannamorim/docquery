@@ -723,43 +723,44 @@ export function reviewPanel(
     const resolve = el("button", "review-resolve", "Resolver");
     resolve.type = "button";
     resolve.title = "O documento foi revisado — apaga as sinalizações";
-    // Resolving erases everyone's reports at once, so it asks first — the
-    // same inline form the flag uses, never a browser dialog.
-    let confirmBox: HTMLElement | null = null;
+    // Resolving erases everyone's reports at once, so it asks first — a
+    // modal <dialog>, created on demand and gone on close. Esc cancels for
+    // free, and the backdrop keeps the click from landing anywhere else.
     resolve.addEventListener("click", () => {
-      if (confirmBox) {
-        confirmBox.remove();
-        confirmBox = null;
-        return;
-      }
-      confirmBox = el("div", "flag-form");
-      confirmBox.append(
-        el(
-          "span",
-          undefined,
-          "Apaga as sinalizações de todos que reportaram este documento.",
-        ),
+      const dialog = el("dialog", "confirm-dialog");
+      const message = el("p");
+      message.append(
+        document.createTextNode("Apaga as sinalizações de todos que reportaram "),
+        el("strong", undefined, name.textContent ?? doc.source),
+        document.createTextNode("."),
       );
-      const confirm = el("button", "flag-confirm", "Confirmar");
+      const confirm = el("button", "confirm-yes", "Confirmar");
       confirm.type = "button";
-      const cancel = el("button", "flag-cancel", "Cancelar");
+      const cancel = el("button", "confirm-no", "Cancelar");
       cancel.type = "button";
-      confirmBox.append(confirm, cancel);
-      head.insertAdjacentElement("afterend", confirmBox);
-      confirm.focus();
+      const actions = el("div", "confirm-actions");
+      actions.append(cancel, confirm);
+      dialog.append(message, actions);
+      document.body.append(dialog);
+      dialog.addEventListener("close", () => dialog.remove());
+      dialog.showModal();
+      cancel.focus();
 
-      cancel.addEventListener("click", () => {
-        confirmBox?.remove();
-        confirmBox = null;
-      });
+      cancel.addEventListener("click", () => dialog.close());
       confirm.addEventListener("click", () => {
         confirm.disabled = true;
         onResolve(doc.source)
-          .then(() => item.remove())
+          .then(() => {
+            dialog.close();
+            item.remove();
+          })
           .catch((error: Error) => {
             confirm.disabled = false;
-            item.querySelector(".error")?.remove();
-            item.append(el("div", "error", error.message));
+            dialog.querySelector(".error")?.remove();
+            actions.insertAdjacentElement(
+              "beforebegin",
+              el("div", "error", error.message),
+            );
           });
       });
     });
