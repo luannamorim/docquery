@@ -767,10 +767,9 @@ export function reviewPanel(
     head.append(resolve);
     item.append(head);
 
-    const when = new Date(doc.last_reported_at);
-    const last = Number.isNaN(when.getTime()) ? "" : when.toLocaleDateString();
-    // "do documento": beside the report dates on the same line, a bare
-    // "atualização" reads as one more report timestamp.
+    // No "última em": each comment below already carries its own date, and
+    // the aggregate repeated the first of them. "do documento" stays — a bare
+    // "atualização" beside the comment dates reads as one more report stamp.
     const updated = updatedLabel(doc.modified_at);
     const docUpdated =
       updated === "data desconhecida"
@@ -782,7 +781,7 @@ export function reviewPanel(
         "review-meta",
         `${doc.report_count} ${
           doc.report_count === 1 ? "sinalização" : "sinalizações"
-        }${last ? ` · última em ${last}` : ""} · ${docUpdated}`,
+        } · ${docUpdated}`,
       ),
     );
     if (doc.comments.length) {
