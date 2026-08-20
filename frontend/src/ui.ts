@@ -581,9 +581,32 @@ export function answerBody(text: string, container: HTMLElement): HTMLElement {
   return body;
 }
 
-/** What the person asked, as a bubble on their side of the thread. */
-export function questionBubble(text: string): HTMLElement {
+/** The hour alone when the message is from today; day and month join it after. */
+function whenLabel(at: Date): string {
+  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const today = new Date();
+  const sameDay =
+    at.getFullYear() === today.getFullYear() &&
+    at.getMonth() === today.getMonth() &&
+    at.getDate() === today.getDate();
+  if (sameDay) return time;
+  const day = at.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
+  return `${day} ${time}`;
+}
+
+/**
+ * What the person asked, as a bubble on their side of the thread.
+ *
+ * One timestamp per turn, on the question: the answer follows seconds later,
+ * so dating both would say the same thing twice.
+ */
+export function questionBubble(text: string, at?: Date): HTMLElement {
   const row = el("div", "row-user");
+  if (at && !Number.isNaN(at.getTime())) {
+    const when = el("span", "bubble-when", whenLabel(at));
+    when.title = at.toLocaleString();
+    row.append(when);
+  }
   row.append(el("div", "bubble", text));
   return row;
 }
@@ -745,7 +768,7 @@ export function reviewPanel(
 
 export function turnBlock(turn: Turn, onReport?: ReportHandler): HTMLElement {
   const block = el("article", "turn");
-  const row = questionBubble(turn.question);
+  const row = questionBubble(turn.question, new Date(turn.created_at));
   block.append(row);
   if (turn.rewritten_question) attachRewrite(row, turn.rewritten_question);
 

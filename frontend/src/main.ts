@@ -414,7 +414,7 @@ async function submit(
   turns.querySelector(".review")?.remove();
 
   const block = el("article", "turn");
-  const questionRow = questionBubble(question);
+  const questionRow = questionBubble(question, new Date());
   block.append(questionRow);
   const answerSide = assistantColumn();
   // A slot the streaming text re-renders into, placed before the sources so
