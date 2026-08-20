@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS document_reports (
     -- column: it is the whole read-access model of the table.
     sector       VARCHAR(255) NOT NULL,
     reporter_oid VARCHAR(64)  NOT NULL,
+    -- Display name snapshotted from the token at report time, like sector is
+    -- from the index. '' when the token carries no name; never resolved later.
+    reporter_name VARCHAR(255) NOT NULL DEFAULT '',
     comment      VARCHAR(500) NOT NULL DEFAULT '',
     created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,

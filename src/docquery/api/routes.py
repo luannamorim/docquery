@@ -172,6 +172,25 @@ def get_reporter(
 ReporterDep = Annotated[str | None, Depends(get_reporter)]
 
 
+def get_reporter_name(
+    settings: SettingsDep,
+    claims: Annotated[dict | None, Depends(require_auth)],
+) -> str:
+    """The reporter's display name, for the review list.
+
+    Entra puts it in `name` on v2 tokens, with `preferred_username` (the UPN)
+    as the fallback. "" when the token carries neither — identity stays keyed
+    on the oid; this is display only, snapshotted at report time.
+    """
+    if not settings.feedback_enabled:
+        return ""
+    claims = claims or {}
+    return claims.get("name") or claims.get("preferred_username") or ""
+
+
+ReporterNameDep = Annotated[str, Depends(get_reporter_name)]
+
+
 class _TaskStore:
     """In-process task store with TTL expiry and bounded size.
 
@@ -621,6 +640,7 @@ def report_document(
     sectors: SectorsDep,
     feedback: FeedbackStoreDep,
     reporter: ReporterDep,
+    reporter_name: ReporterNameDep,
     response: Response,
 ) -> FeedbackReportResponse:
     """Flag a document as outdated. A record for review, nothing more: it does
@@ -640,7 +660,9 @@ def report_document(
     sector = sector_for_source(request.source, settings, sectors)
     if sector is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    created = feedback.report(request.source, sector, reporter, request.comment)
+    created = feedback.report(
+        request.source, sector, reporter, request.comment, reporter_name
+    )
     if not created:
         # A repeat flag by the same caller updated the existing report.
         response.status_code = 200

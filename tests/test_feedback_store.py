@@ -44,7 +44,10 @@ def store():
 
 
 def test_a_first_report_is_created(store):
-    assert store.report(CONTRATO, "financeiro", ANA, "valores de 2023") is True
+    assert (
+        store.report(CONTRATO, "financeiro", ANA, "valores de 2023", "Ana Lima")
+        is True
+    )
 
     docs = store.list_reports(sectors=None)
     assert len(docs) == 1
@@ -52,8 +55,9 @@ def test_a_first_report_is_created(store):
     assert docs[0]["sector"] == "financeiro"
     assert docs[0]["report_count"] == 1
     assert [c["comment"] for c in docs[0]["comments"]] == ["valores de 2023"]
-    # Each comment carries when it was reported, so the review panel can date it.
+    # Each comment carries when and by whom, so the review panel can say both.
     assert docs[0]["comments"][0]["reported_at"] is not None
+    assert docs[0]["comments"][0]["reporter_name"] == "Ana Lima"
 
 
 def test_a_repeat_report_by_the_same_reporter_updates_instead_of_duplicating(store):

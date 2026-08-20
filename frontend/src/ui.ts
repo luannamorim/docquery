@@ -749,11 +749,16 @@ export function reviewPanel(
     );
     if (doc.comments.length) {
       const list = el("ul", "review-comments");
-      for (const { comment, reported_at } of doc.comments) {
+      for (const { comment, reported_at, reporter_name } of doc.comments) {
         const entry = el("li");
         const when = new Date(reported_at);
         if (!Number.isNaN(when.getTime())) {
           entry.append(el("span", "review-comment-date", when.toLocaleDateString()));
+          entry.append(document.createTextNode(" · "));
+        }
+        // A person's own words either side of the dot — text nodes, never markup.
+        if (reporter_name) {
+          entry.append(el("span", "review-comment-author", reporter_name));
           entry.append(document.createTextNode(" · "));
         }
         entry.append(document.createTextNode(comment));

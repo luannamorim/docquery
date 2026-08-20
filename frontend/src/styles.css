@@ -965,6 +965,10 @@ button {
   font-size: 0.9em;
 }
 
+.review-comment-author {
+  color: var(--ink);
+}
+
 .empty h1 {
   font-size: 1.6rem;
   font-weight: 650;

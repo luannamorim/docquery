@@ -60,6 +60,8 @@ export async function conversation(id: string): Promise<Conversation> {
 export type ReportComment = {
   comment: string;
   reported_at: string;
+  /** Snapshotted from the token at report time; "" when it carried no name. */
+  reporter_name: string;
 };
 
 export type ReportedDocument = {

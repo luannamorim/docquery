@@ -49,17 +49,45 @@ class FeedbackStore:
         return pymysql.connect(**self._kwargs, cursorclass=pymysql.cursors.DictCursor)
 
     def init_schema(self) -> None:
-        """Apply schema.sql. Every statement is IF NOT EXISTS, so this is a
-        no-op against a database that already has the table."""
+        """Apply schema.sql, then the migrations it cannot express.
+
+        Every statement in the file is IF NOT EXISTS, so it is a no-op against
+        a database that already has the table — which is exactly why a column
+        added later never reaches one. MySQL 8 has no ADD COLUMN IF NOT
+        EXISTS, so the guard is information_schema, not error-swallowing.
+        """
         with self._connect() as conn, conn.cursor() as cur:
             for statement in _statements(SCHEMA_PATH.read_text()):
                 cur.execute(statement)
+            cur.execute(
+                """
+                SELECT COUNT(*) AS n FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'document_reports'
+                  AND column_name = 'reporter_name'
+                """
+            )
+            if cur.fetchone()["n"] == 0:
+                cur.execute(
+                    """
+                    ALTER TABLE document_reports
+                    ADD COLUMN reporter_name VARCHAR(255) NOT NULL DEFAULT ''
+                    AFTER reporter_oid
+                    """
+                )
 
     def reset_for_tests(self) -> None:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("DELETE FROM document_reports")
 
-    def report(self, source: str, sector: str, reporter: str, comment: str = "") -> bool:
+    def report(
+        self,
+        source: str,
+        sector: str,
+        reporter: str,
+        comment: str = "",
+        reporter_name: str = "",
+    ) -> bool:
         """Record a report. True when it is this reporter's first for the source.
 
         A repeat report is an update, not a duplicate: the UNIQUE key on
@@ -72,13 +100,15 @@ class FeedbackStore:
             cur.execute(
                 """
                 INSERT INTO document_reports
-                    (source, source_hash, sector, reporter_oid, comment)
-                VALUES (%s, %s, %s, %s, %s)
+                    (source, source_hash, sector, reporter_oid, reporter_name,
+                     comment)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
-                    comment = %s, sector = %s, updated_at = CURRENT_TIMESTAMP
+                    comment = %s, sector = %s, reporter_name = %s,
+                    updated_at = CURRENT_TIMESTAMP
                 """,
-                (source, source_hash(source), sector, reporter, comment,
-                 comment, sector),
+                (source, source_hash(source), sector, reporter, reporter_name,
+                 comment, comment, sector, reporter_name),
             )
             return cur.rowcount == 1
 
@@ -117,7 +147,7 @@ class FeedbackStore:
             for row in rows:
                 cur.execute(
                     f"""
-                    SELECT comment, updated_at AS reported_at
+                    SELECT comment, reporter_name, updated_at AS reported_at
                     FROM document_reports
                     WHERE source_hash = %s AND sector = %s AND comment <> ''
                     {predicate.replace("WHERE", "AND", 1)}

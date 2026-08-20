@@ -54,7 +54,7 @@ class InMemoryFeedbackStore:
     def init_schema(self) -> None:
         pass
 
-    def report(self, source, sector, reporter, comment="") -> bool:
+    def report(self, source, sector, reporter, comment="", reporter_name="") -> bool:
         key = (source_hash(source), reporter)
         created = key not in self.rows
         self._clock += 1
@@ -62,6 +62,7 @@ class InMemoryFeedbackStore:
             "source": source,
             "sector": sector,
             "comment": comment,
+            "reporter_name": reporter_name,
             "at": self._clock,
         }
         return created
@@ -81,7 +82,11 @@ class InMemoryFeedbackStore:
                 "report_count": len(rows),
                 "last_reported_at": datetime.now(UTC),
                 "comments": [
-                    {"comment": r["comment"], "reported_at": datetime.now(UTC)}
+                    {
+                        "comment": r["comment"],
+                        "reported_at": datetime.now(UTC),
+                        "reporter_name": r["reporter_name"],
+                    }
                     for r in rows
                     if r["comment"]
                 ],
@@ -130,18 +135,22 @@ def signing_key(monkeypatch, private_key):
     return public_key
 
 
-def token_for(private_key, oid: str, roles=None) -> str:
+def token_for(private_key, oid: str, roles=None, name=None) -> str:
     now = datetime.now(UTC)
+    claims = {
+        "aud": CLIENT,
+        "iss": ISSUER,
+        "iat": now,
+        "exp": now + timedelta(seconds=3600),
+        "sub": oid,
+        "oid": oid,
+        "roles": roles if roles is not None else ["sector.financeiro"],
+    }
+    # Entra puts the display name in `name`; a token may not carry it at all.
+    if name is not None:
+        claims["name"] = name
     return jwt.encode(
-        {
-            "aud": CLIENT,
-            "iss": ISSUER,
-            "iat": now,
-            "exp": now + timedelta(seconds=3600),
-            "sub": oid,
-            "oid": oid,
-            "roles": roles if roles is not None else ["sector.financeiro"],
-        },
+        claims,
         private_key,
         algorithm="RS256",
         headers={"kid": "test-kid"},
@@ -188,8 +197,8 @@ def client(signing_key, monkeypatch):
     app.dependency_overrides.clear()
 
 
-def _auth(private_key, oid=ANA, roles=None):
-    return {"Authorization": f"Bearer {token_for(private_key, oid, roles)}"}
+def _auth(private_key, oid=ANA, roles=None, name=None):
+    return {"Authorization": f"Bearer {token_for(private_key, oid, roles, name)}"}
 
 
 def test_a_report_is_recorded_and_listed(client, private_key):
@@ -198,7 +207,7 @@ def test_a_report_is_recorded_and_listed(client, private_key):
     response = api.post(
         "/feedback",
         json={"source": CONTRATO, "comment": "valores de 2023"},
-        headers=_auth(private_key),
+        headers=_auth(private_key, name="Ana Lima"),
     )
 
     assert response.status_code == 201
@@ -214,8 +223,21 @@ def test_a_report_is_recorded_and_listed(client, private_key):
     assert doc["source"] == CONTRATO
     assert doc["report_count"] == 1
     assert [c["comment"] for c in doc["comments"]] == ["valores de 2023"]
-    # Each comment carries when it was reported, so the review panel can date it.
+    # Each comment carries when and by whom, so the review panel can say both.
     assert doc["comments"][0]["reported_at"]
+    assert doc["comments"][0]["reporter_name"] == "Ana Lima"
+
+
+def test_a_token_without_a_name_reports_anonymously(client, private_key):
+    api, _ = client
+    api.post(
+        "/feedback",
+        json={"source": CONTRATO, "comment": "sem nome no token"},
+        headers=_auth(private_key),
+    )
+
+    doc = api.get("/feedback", headers=_auth(private_key)).json()["documents"][0]
+    assert doc["comments"][0]["reporter_name"] == ""
 
 
 def test_a_repeat_report_updates_instead_of_duplicating(client, private_key):

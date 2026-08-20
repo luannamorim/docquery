@@ -196,6 +196,8 @@ class FeedbackReportResponse(BaseModel):
 class ReportComment(BaseModel):
     comment: str
     reported_at: datetime
+    # Snapshotted from the token at report time; "" when it carried no name.
+    reporter_name: str = ""
 
 
 class ReportedDocument(BaseModel):
