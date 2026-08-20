@@ -891,6 +891,10 @@ button {
 /* The review list, in the thread's place. */
 
 .review {
+  /* A flex item with auto side margins shrinks to fit its content, so the
+     panel's width tracked whatever the widest card held. Full width up to
+     the measure keeps every card the same size regardless of content. */
+  width: 100%;
   max-width: var(--measure);
   margin: 2rem auto;
 }
