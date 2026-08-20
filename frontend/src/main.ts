@@ -66,7 +66,12 @@ function focusComposer(): void {
 }
 
 function shortName(username: string): string {
-  return username.split("@")[0] || username;
+  const local = username.split("@")[0] || username;
+  // ana.silva reads as a login; Ana.Silva reads as a person.
+  return local
+    .split(".")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(".");
 }
 
 /** The flag-as-outdated handler, or undefined when the feature is off — the
