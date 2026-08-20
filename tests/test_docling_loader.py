@@ -392,3 +392,100 @@ def test_partial_conversion_without_timeout_is_a_conversion_error():
         with pytest.raises(docling_loader.DoclingConversionError):
             docling_loader.convert(FIXTURES / "native_text.pdf", settings)
 
+
+def _doc_with_ocr_screenshot() -> DoclingDocument:
+    """A page whose numbers exist only as OCR text nested inside a picture."""
+    doc = DoclingDocument(name="synthetic-screenshot")
+    doc.add_page(page_no=1, size=Size(width=612, height=792))
+    doc.add_heading(text="Manual Zendesk", level=1, prov=_prov(1))
+    doc.add_text(
+        label=DocItemLabel.TEXT,
+        text=f"{PARAGRAPH} The ticket views are shown in the screenshot below.",
+        prov=_prov(1),
+    )
+    picture = doc.add_picture(prov=_prov(1))
+    for row, line in enumerate(
+        (
+            "Ticket Atendimento Telefonia 279",
+            "Tickets Novos Atendimentos 74",
+            "Tickets Abertos Atendimento 43",
+        )
+    ):
+        top = 600 - 30 * row
+        doc.add_text(
+            label=DocItemLabel.TEXT,
+            text=line,
+            prov=_prov_at(1, t=top, b=top - 12, l=100, r=300),
+            parent=picture,
+        )
+    return doc
+
+
+def test_ocr_text_inside_pictures_reaches_the_chunks():
+    """Text OCR'd out of an embedded screenshot must be retrievable.
+
+    Docling stores it as children of the PictureItem, which the default
+    chunking serializer renders as an empty placeholder — losing exactly the
+    text the OCR stage existed to recover.
+    """
+    chunks = chunk_document(
+        _as_document(_doc_with_ocr_screenshot()),
+        Settings(docling_enabled=True),
+    )
+    joined = "\n".join(c.text for c in chunks)
+    assert "Ticket Atendimento Telefonia 279" in joined
+    assert "Tickets Novos Atendimentos 74" in joined
+    assert "Tickets Abertos Atendimento 43" in joined
+
+
+def test_picture_chunk_with_ocr_text_is_marked_as_figure():
+    chunks = chunk_document(
+        _as_document(_doc_with_ocr_screenshot()),
+        Settings(docling_enabled=True),
+    )
+    figure_chunks = [c for c in chunks if c.metadata["content_type"] == "figure"]
+    assert figure_chunks
+    assert any("279" in c.text for c in figure_chunks)
+
+
+def _prov_at(page: int, *, t: float, b: float, l: float, r: float) -> ProvenanceItem:
+    return ProvenanceItem(
+        page_no=page,
+        bbox=BoundingBox(l=l, t=t, r=r, b=b, coord_origin=CoordOrigin.BOTTOMLEFT),
+        charspan=(0, 10),
+    )
+
+
+def test_ocr_lines_are_rebuilt_from_boxes_not_tree_order():
+    """A label and its count OCR as separate boxes on one visual row.
+
+    Kept apart they read as an unpaired list the LLM has to re-align (and
+    demonstrably misaligns); merged by their boxes they read as the row a
+    human sees: "Ticket Atendimento Telefonia 279".
+    """
+    doc = DoclingDocument(name="synthetic-rows")
+    doc.add_page(page_no=1, size=Size(width=612, height=792))
+    picture = doc.add_picture(prov=_prov(1))
+    rows = [
+        ("Ticket Atendimento Telefonia", "279", 609, 598),
+        ("Tickets Novos Atendimentos", "74", 580, 568),
+        ("Tickets Abertos Atendimento", "43", 550, 538),
+    ]
+    for label, count, top, bottom in rows:
+        doc.add_text(
+            label=DocItemLabel.TEXT, text=label,
+            prov=_prov_at(1, t=top, b=bottom, l=113, r=250), parent=picture,
+        )
+        doc.add_text(
+            label=DocItemLabel.TEXT, text=count,
+            prov=_prov_at(1, t=top + 1, b=bottom, l=284, r=306), parent=picture,
+        )
+    chunks = chunk_document(
+        _as_document(doc), Settings(docling_enabled=True)
+    )
+    joined = "\n".join(c.text for c in chunks)
+    assert "Ticket Atendimento Telefonia | 279" in joined
+    assert "Tickets Novos Atendimentos | 74" in joined
+    assert "Tickets Abertos Atendimento | 43" in joined
+    # Distinct rows must not collapse into one line.
+    assert "279 | Tickets Novos" not in joined

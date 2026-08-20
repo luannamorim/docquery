@@ -225,24 +225,103 @@ def load_with_docling(path: Path, settings: Settings | None = None) -> Document:
     )
 
 
+def _ocr_lines(texts: list[Any]) -> list[str]:
+    """Rebuild the visual rows of OCR'd text from the items' bounding boxes.
+
+    OCR reads a screenshot as isolated boxes, so a label and the count beside
+    it ("Ticket Atendimento Telefonia" / "279") arrive as separate items. In
+    tree order they serialize as an unpaired list that the LLM has to re-align
+    — and demonstrably misaligns. Grouping items whose boxes overlap
+    vertically, top to bottom then left to right, re-reads the image the way a
+    person does: one row, label then value.
+    """
+    from docling_core.types.doc import CoordOrigin
+
+    placed = [t for t in texts if t.prov and t.prov[0].bbox]
+    floating = [t.text for t in texts if not (t.prov and t.prov[0].bbox)]
+
+    def _top_down_y(t: Any) -> float:
+        bbox = t.prov[0].bbox
+        center = (bbox.t + bbox.b) / 2
+        return -center if bbox.coord_origin == CoordOrigin.BOTTOMLEFT else center
+
+    rows: list[list[Any]] = []
+    for text_item in sorted(placed, key=_top_down_y):
+        bbox = text_item.prov[0].bbox
+        top, bottom = max(bbox.t, bbox.b), min(bbox.t, bbox.b)
+        if rows:
+            last = rows[-1][-1].prov[0].bbox
+            l_top, l_bottom = max(last.t, last.b), min(last.t, last.b)
+            # Same row when the vertical overlap covers most of the shorter
+            # box — boxes on one row differ by a pixel or two, across rows
+            # they clear each other entirely.
+            overlap = min(top, l_top) - max(bottom, l_bottom)
+            if overlap >= 0.5 * min(top - bottom, l_top - l_bottom):
+                rows[-1].append(text_item)
+                continue
+        rows.append([text_item])
+
+    # Cells of one row join with a pipe, not a space: "label | value" reads as
+    # the table row it visually is. Joined with a plain space, the value melts
+    # into prose — and an LLM enumerating "Tickets ..." rows demonstrably
+    # filters out the one row whose label doesn't repeat the question's word.
+    lines = [
+        " | ".join(t.text for t in sorted(row, key=lambda t: t.prov[0].bbox.l))
+        for row in rows
+    ]
+    return lines + floating
+
+
 def _serializer_provider() -> Any:
-    """Serialize tables as markdown rather than Docling's default triplets.
+    """Serialize tables as markdown, and keep OCR text found inside pictures.
 
     Markdown keeps the row/column grid readable both for the embedder and for a
     human reading the citation; the triplet form ("Basic, Price = 10") loses the
     visual structure.
+
+    Pictures need their own serializer because OCR text recognized inside an
+    embedded image (a screenshot in a manual, say) is stored as children of the
+    PictureItem — and the default chunking serializer renders a picture as an
+    empty placeholder, silently dropping exactly the text the OCR stage
+    existed to recover.
     """
     from docling_core.transforms.chunker.hierarchical_chunker import (
         ChunkingDocSerializer,
         ChunkingSerializerProvider,
     )
-    from docling_core.transforms.serializer.markdown import MarkdownTableSerializer
+    from docling_core.transforms.serializer.common import create_ser_result
+    from docling_core.transforms.serializer.markdown import (
+        MarkdownPictureSerializer,
+        MarkdownTableSerializer,
+    )
+    from docling_core.types.doc import TextItem
+
+    class _OcrTextPictureSerializer(MarkdownPictureSerializer):
+        def serialize(
+            self, *, item: Any, doc_serializer: Any, doc: Any, **kwargs: Any
+        ) -> Any:
+            base = super().serialize(
+                item=item, doc_serializer=doc_serializer, doc=doc, **kwargs
+            )
+            texts = [
+                nested
+                for nested, _level in doc.iterate_items(
+                    root=item, traverse_pictures=True
+                )
+                if isinstance(nested, TextItem) and nested.text
+            ]
+            if not texts:
+                return base
+            lines = _ocr_lines(texts)
+            text = "\n".join(([base.text] if base.text else []) + lines)
+            return create_ser_result(text=text, span_source=item)
 
     class _MarkdownTableProvider(ChunkingSerializerProvider):
         def get_serializer(self, doc: Any) -> Any:
             return ChunkingDocSerializer(
                 doc=doc,
                 table_serializer=MarkdownTableSerializer(),
+                picture_serializer=_OcrTextPictureSerializer(),
             )
 
     return _MarkdownTableProvider()
